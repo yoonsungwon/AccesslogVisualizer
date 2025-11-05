@@ -1497,6 +1497,257 @@ def visualize_data(time_series_data):
     print(f"Dashboard saved to {output_file}")
 
 
+# ============================================================================
+# Pivot Visualization Functions
+# ============================================================================
+
+def generate_pivot_chart(
+    pivot_df: pd.DataFrame,
+    output_file: Path,
+    chart_type: str,
+    title: str = "Pivot Analysis",
+    row_field: str = "row",
+    column_field: str = "column",
+    value_field: str = "value",
+    agg_func: str = "count"
+) -> None:
+    """
+    Generate interactive pivot chart visualization.
+
+    Args:
+        pivot_df: Pivot table DataFrame (rows x columns)
+        output_file: Output file path
+        chart_type: Chart type ('line', 'bar', 'heatmap', 'area', 'stacked_bar', 'stacked_area', 'facet')
+        title: Chart title
+        row_field: Row field name (for display)
+        column_field: Column field name (for display)
+        value_field: Value field name (for display)
+        agg_func: Aggregation function name (for display)
+    """
+    logger.info(f"Generating {chart_type} chart for pivot data: {len(pivot_df)} rows x {len(pivot_df.columns)} columns")
+
+    if chart_type == 'line':
+        fig = _create_pivot_line_chart(pivot_df, title, row_field, column_field, value_field, agg_func)
+    elif chart_type == 'bar':
+        fig = _create_pivot_bar_chart(pivot_df, title, row_field, column_field, value_field, agg_func)
+    elif chart_type == 'heatmap':
+        fig = _create_pivot_heatmap(pivot_df, title, row_field, column_field, value_field, agg_func)
+    elif chart_type == 'area':
+        fig = _create_pivot_area_chart(pivot_df, title, row_field, column_field, value_field, agg_func)
+    elif chart_type == 'stacked_bar':
+        fig = _create_pivot_stacked_bar_chart(pivot_df, title, row_field, column_field, value_field, agg_func)
+    elif chart_type == 'stacked_area':
+        fig = _create_pivot_stacked_area_chart(pivot_df, title, row_field, column_field, value_field, agg_func)
+    elif chart_type == 'facet':
+        fig = _create_pivot_facet_chart(pivot_df, title, row_field, column_field, value_field, agg_func)
+    else:
+        raise ValueError(f"Unknown chart type: {chart_type}")
+
+    # Save as HTML with CDN
+    fig.write_html(str(output_file), include_plotlyjs='cdn')
+    logger.info(f"Pivot chart saved to {output_file}")
+
+
+def _create_pivot_line_chart(pivot_df, title, row_field, column_field, value_field, agg_func):
+    """Create line chart from pivot table"""
+    fig = go.Figure()
+
+    # Each row becomes a line
+    for idx, row in pivot_df.iterrows():
+        fig.add_trace(go.Scatter(
+            x=pivot_df.columns,
+            y=row.values,
+            mode='lines+markers',
+            name=str(idx),
+            hovertemplate=f'{row_field}: {idx}<br>{column_field}: %{{x}}<br>{agg_func}({value_field}): %{{y}}<extra></extra>'
+        ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title=column_field,
+        yaxis_title=f'{agg_func}({value_field})',
+        hovermode='x unified',
+        height=600,
+        showlegend=True
+    )
+
+    return fig
+
+
+def _create_pivot_bar_chart(pivot_df, title, row_field, column_field, value_field, agg_func):
+    """Create bar chart from pivot table"""
+    fig = go.Figure()
+
+    # Each row becomes a bar group
+    for idx, row in pivot_df.iterrows():
+        fig.add_trace(go.Bar(
+            x=pivot_df.columns,
+            y=row.values,
+            name=str(idx),
+            hovertemplate=f'{row_field}: {idx}<br>{column_field}: %{{x}}<br>{agg_func}({value_field}): %{{y}}<extra></extra>'
+        ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title=column_field,
+        yaxis_title=f'{agg_func}({value_field})',
+        barmode='group',
+        height=600,
+        showlegend=True
+    )
+
+    return fig
+
+
+def _create_pivot_heatmap(pivot_df, title, row_field, column_field, value_field, agg_func):
+    """Create heatmap from pivot table"""
+    fig = go.Figure(data=go.Heatmap(
+        z=pivot_df.values,
+        x=pivot_df.columns,
+        y=pivot_df.index,
+        colorscale='Viridis',
+        hovertemplate=f'{row_field}: %{{y}}<br>{column_field}: %{{x}}<br>{agg_func}({value_field}): %{{z}}<extra></extra>'
+    ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title=column_field,
+        yaxis_title=row_field,
+        height=max(600, len(pivot_df) * 20),  # Dynamic height based on rows
+        showlegend=False
+    )
+
+    return fig
+
+
+def _create_pivot_area_chart(pivot_df, title, row_field, column_field, value_field, agg_func):
+    """Create area chart from pivot table"""
+    fig = go.Figure()
+
+    # Each row becomes an area
+    for idx, row in pivot_df.iterrows():
+        fig.add_trace(go.Scatter(
+            x=pivot_df.columns,
+            y=row.values,
+            mode='lines',
+            name=str(idx),
+            fill='tonexty',
+            hovertemplate=f'{row_field}: {idx}<br>{column_field}: %{{x}}<br>{agg_func}({value_field}): %{{y}}<extra></extra>'
+        ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title=column_field,
+        yaxis_title=f'{agg_func}({value_field})',
+        hovermode='x unified',
+        height=600,
+        showlegend=True
+    )
+
+    return fig
+
+
+def _create_pivot_stacked_bar_chart(pivot_df, title, row_field, column_field, value_field, agg_func):
+    """Create stacked bar chart from pivot table"""
+    fig = go.Figure()
+
+    # Each row becomes a stacked bar
+    for idx, row in pivot_df.iterrows():
+        fig.add_trace(go.Bar(
+            x=pivot_df.columns,
+            y=row.values,
+            name=str(idx),
+            hovertemplate=f'{row_field}: {idx}<br>{column_field}: %{{x}}<br>{agg_func}({value_field}): %{{y}}<extra></extra>'
+        ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title=column_field,
+        yaxis_title=f'{agg_func}({value_field})',
+        barmode='stack',
+        height=600,
+        showlegend=True
+    )
+
+    return fig
+
+
+def _create_pivot_stacked_area_chart(pivot_df, title, row_field, column_field, value_field, agg_func):
+    """Create stacked area chart from pivot table"""
+    fig = go.Figure()
+
+    # Each row becomes a stacked area
+    for idx, row in pivot_df.iterrows():
+        fig.add_trace(go.Scatter(
+            x=pivot_df.columns,
+            y=row.values,
+            mode='lines',
+            name=str(idx),
+            stackgroup='one',
+            hovertemplate=f'{row_field}: {idx}<br>{column_field}: %{{x}}<br>{agg_func}({value_field}): %{{y}}<extra></extra>'
+        ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title=column_field,
+        yaxis_title=f'{agg_func}({value_field})',
+        hovermode='x unified',
+        height=600,
+        showlegend=True
+    )
+
+    return fig
+
+
+def _create_pivot_facet_chart(pivot_df, title, row_field, column_field, value_field, agg_func):
+    """Create facet chart (small multiples) from pivot table"""
+    # Calculate grid dimensions
+    n_rows = len(pivot_df)
+    n_cols = min(3, n_rows)  # Max 3 columns
+    n_row_grid = (n_rows + n_cols - 1) // n_cols
+
+    # Create subplots
+    fig = make_subplots(
+        rows=n_row_grid,
+        cols=n_cols,
+        subplot_titles=[str(idx) for idx in pivot_df.index],
+        vertical_spacing=0.1,
+        horizontal_spacing=0.05
+    )
+
+    # Add trace for each row
+    for i, (idx, row) in enumerate(pivot_df.iterrows()):
+        row_num = i // n_cols + 1
+        col_num = i % n_cols + 1
+
+        fig.add_trace(
+            go.Scatter(
+                x=pivot_df.columns,
+                y=row.values,
+                mode='lines+markers',
+                name=str(idx),
+                showlegend=False,
+                hovertemplate=f'{column_field}: %{{x}}<br>{agg_func}({value_field}): %{{y}}<extra></extra>'
+            ),
+            row=row_num,
+            col=col_num
+        )
+
+    fig.update_layout(
+        title_text=title,
+        height=300 * n_row_grid,
+        showlegend=False
+    )
+
+    # Update all xaxes and yaxes
+    for i in range(1, n_row_grid + 1):
+        for j in range(1, n_cols + 1):
+            fig.update_xaxes(title_text=column_field if i == n_row_grid else "", row=i, col=j)
+            fig.update_yaxes(title_text=f'{agg_func}({value_field})' if j == 1 else "", row=i, col=j)
+
+    return fig
+
+
 # Main function for testing
 if __name__ == "__main__":
     print("Data Visualizer Module - MCP Tools")
@@ -1504,3 +1755,4 @@ if __name__ == "__main__":
     print("  - generateXlog(inputFile, logFormatFile, outputFormat)")
     print("  - generateRequestPerURI(inputFile, logFormatFile, outputFormat)")
     print("  - generateMultiMetricDashboard(inputFile, logFormatFile, outputFormat)")
+    print("  - generate_pivot_chart(pivot_df, output_file, chart_type, ...)")

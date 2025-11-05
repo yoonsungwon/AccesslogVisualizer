@@ -4,10 +4,12 @@ Utility classes and functions for Access Log Analyzer
 This module provides common utilities used across multiple modules.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import pandas as pd
+from multiprocessing import cpu_count
 from .logging_config import get_logger
 from .exceptions import ValidationError
+from .config import ConfigManager
 
 logger = get_logger(__name__)
 
@@ -284,3 +286,136 @@ class ParamParser:
         if value is None:
             return default or []
         return [item.strip() for item in value.split(separator) if item.strip()]
+
+
+class MultiprocessingConfig:
+    """
+    Utility class for managing multiprocessing configuration.
+
+    Provides centralized access to multiprocessing settings from config.yaml.
+    """
+
+    @staticmethod
+    def get_config() -> Dict[str, Any]:
+        """
+        Get multiprocessing configuration from config.yaml.
+
+        Returns:
+            Dictionary with multiprocessing settings:
+            - enabled: bool
+            - num_workers: Optional[int]
+            - chunk_size: int
+            - min_lines_for_parallel: int
+        """
+        config_mgr = ConfigManager()
+
+        try:
+            config = config_mgr.load_config()
+
+            # Get multiprocessing settings with defaults
+            mp_config = config.get('multiprocessing', {})
+
+            return {
+                'enabled': mp_config.get('enabled', True),
+                'num_workers': mp_config.get('num_workers'),  # None = auto-detect
+                'chunk_size': mp_config.get('chunk_size', 10000),
+                'min_lines_for_parallel': mp_config.get('min_lines_for_parallel', 10000)
+            }
+        except Exception as e:
+            logger.warning(f"Could not load multiprocessing config: {e}, using defaults")
+            return {
+                'enabled': True,
+                'num_workers': None,
+                'chunk_size': 10000,
+                'min_lines_for_parallel': 10000
+            }
+
+    @staticmethod
+    def get_optimal_workers(
+        total_items: int,
+        min_items_per_worker: int = 100,
+        max_workers: Optional[int] = None
+    ) -> int:
+        """
+        Calculate optimal number of worker processes.
+
+        Args:
+            total_items: Total number of items to process
+            min_items_per_worker: Minimum items per worker
+            max_workers: Maximum workers (None = cpu_count())
+
+        Returns:
+            Optimal number of workers
+        """
+        if max_workers is None:
+            max_workers = cpu_count()
+
+        # Calculate based on total items
+        workers = max(1, min(
+            max_workers,
+            total_items // min_items_per_worker
+        ))
+
+        return workers
+
+    @staticmethod
+    def should_use_multiprocessing(
+        total_items: int,
+        config: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        Determine if multiprocessing should be used.
+
+        Args:
+            total_items: Total number of items to process
+            config: Optional config dict (will load if None)
+
+        Returns:
+            True if multiprocessing should be used
+        """
+        if config is None:
+            config = MultiprocessingConfig.get_config()
+
+        if not config['enabled']:
+            return False
+
+        min_lines = config['min_lines_for_parallel']
+        return total_items >= min_lines
+
+    @staticmethod
+    def get_processing_params(
+        total_items: int,
+        override_enabled: Optional[bool] = None,
+        override_num_workers: Optional[int] = None,
+        override_chunk_size: Optional[int] = None
+    ) -> Tuple[bool, Optional[int], int]:
+        """
+        Get complete processing parameters with overrides.
+
+        Args:
+            total_items: Total number of items to process
+            override_enabled: Override multiprocessing enabled setting
+            override_num_workers: Override number of workers
+            override_chunk_size: Override chunk size
+
+        Returns:
+            Tuple of (use_multiprocessing, num_workers, chunk_size)
+        """
+        config = MultiprocessingConfig.get_config()
+
+        # Apply overrides
+        enabled = override_enabled if override_enabled is not None else config['enabled']
+        num_workers = override_num_workers if override_num_workers is not None else config['num_workers']
+        chunk_size = override_chunk_size if override_chunk_size is not None else config['chunk_size']
+
+        # Determine if we should use multiprocessing
+        use_mp = enabled and MultiprocessingConfig.should_use_multiprocessing(total_items, config)
+
+        # Auto-detect workers if needed
+        if use_mp and num_workers is None:
+            num_workers = MultiprocessingConfig.get_optimal_workers(
+                total_items,
+                min_items_per_worker=chunk_size
+            )
+
+        return use_mp, num_workers, chunk_size

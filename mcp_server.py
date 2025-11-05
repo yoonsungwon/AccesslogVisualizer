@@ -40,7 +40,8 @@ from data_processor import (
     filterByCondition,
     extractUriPatterns,
     filterUriPatterns,
-    calculateStats
+    calculateStats,
+    createPivotVisualization
 )
 from data_visualizer import (
     generateXlog,
@@ -258,6 +259,69 @@ async def list_tools() -> list[Tool]:
                 }
             }
         ),
+        Tool(
+            name="createPivotVisualization",
+            description="Excel 피벗 테이블 스타일의 유연한 집계 및 시각화를 생성합니다. 다양한 필드 조합과 집계 함수, 차트 타입을 지원합니다.",
+            inputSchema={
+                "type": "object",
+                "required": ["inputFile", "logFormatFile", "rowField", "columnField", "valueField"],
+                "properties": {
+                    "inputFile": {
+                        "type": "string",
+                        "description": "입력 로그 파일 경로"
+                    },
+                    "logFormatFile": {
+                        "type": "string",
+                        "description": "로그 포맷 파일 경로"
+                    },
+                    "rowField": {
+                        "type": "string",
+                        "description": "행 차원 필드 (예: 'url', 'client_ip', 'status')"
+                    },
+                    "columnField": {
+                        "type": "string",
+                        "description": "열 차원 필드 (예: 'time', 'status', 'method')"
+                    },
+                    "valueField": {
+                        "type": "string",
+                        "description": "집계할 값 필드 (예: 'count', 'sent_bytes', 'target_processing_time', 'error_rate')"
+                    },
+                    "valueAggFunc": {
+                        "type": "string",
+                        "enum": ["count", "sum", "avg", "min", "max", "p50", "p90", "p95", "p99", "error_rate"],
+                        "description": "집계 함수",
+                        "default": "count"
+                    },
+                    "rowFilter": {
+                        "type": "string",
+                        "description": "행 필터링 (예: 'top:20:sum:sent_bytes', 'threshold:sent_bytes:>:1000000')",
+                        "default": None
+                    },
+                    "topN": {
+                        "type": "integer",
+                        "description": "표시할 상위 행 수",
+                        "default": 20
+                    },
+                    "chartType": {
+                        "type": "string",
+                        "enum": ["line", "bar", "heatmap", "area", "stacked_bar", "stacked_area", "facet"],
+                        "description": "차트 타입",
+                        "default": "line"
+                    },
+                    "outputFormat": {
+                        "type": "string",
+                        "enum": ["html", "json"],
+                        "description": "출력 포맷",
+                        "default": "html"
+                    },
+                    "params": {
+                        "type": "string",
+                        "description": "추가 파라미터 (예: 'timeInterval=1h;statusGroups=2xx,4xx,5xx')",
+                        "default": ""
+                    }
+                }
+            }
+        ),
     ]
 
 
@@ -352,7 +416,26 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Sequence[TextConten
                 type="text",
                 text=json.dumps(result, indent=2, ensure_ascii=False)
             )]
-        
+
+        elif name == "createPivotVisualization":
+            result = createPivotVisualization(
+                arguments["inputFile"],
+                arguments["logFormatFile"],
+                arguments["rowField"],
+                arguments["columnField"],
+                arguments["valueField"],
+                arguments.get("valueAggFunc", "count"),
+                arguments.get("rowFilter"),
+                arguments.get("topN", 20),
+                arguments.get("chartType", "line"),
+                arguments.get("outputFormat", "html"),
+                arguments.get("params", "")
+            )
+            return [TextContent(
+                type="text",
+                text=json.dumps(result, indent=2, ensure_ascii=False)
+            )]
+
         else:
             raise ValueError(f"Unknown tool: {name}")
     

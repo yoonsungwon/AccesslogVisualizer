@@ -2,6 +2,14 @@
 # It defines the input path, log pattern, columns, and their data types.
 version: '1.0'
 
+# Multiprocessing Configuration
+# Enable multiprocessing for faster processing of large log files
+multiprocessing:
+  enabled: true              # Enable/disable multiprocessing (default: true)
+  num_workers: null          # Number of worker processes (null = auto-detect based on CPU cores)
+  chunk_size: 10000          # Number of lines per chunk for parallel processing
+  min_lines_for_parallel: 10000  # Minimum lines to trigger parallel processing
+
 # Single file path (string)
 # input_path: '361601224285_elasticloadbalancing_ap-northeast-2_app.NMP-ALB-PRD-EXT-AN2.08f6e93c36da8c98_20250514T0000Z_10.2.144.28_war42r38.log.gz'
 

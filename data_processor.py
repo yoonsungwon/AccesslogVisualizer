@@ -15,6 +15,8 @@ from collections import defaultdict, Counter
 from urllib.parse import urlparse, parse_qs
 import ipaddress
 from typing import Dict, List, Tuple, Optional, Any
+from multiprocessing import Pool, cpu_count
+from functools import partial
 
 # Import core modules
 from core.exceptions import (
@@ -947,13 +949,138 @@ def filterUriPatterns(urisFile: str, params: str = '') -> Dict[str, Any]:
 
 
 # ============================================================================
+# Parallel Processing Helper Functions
+# ============================================================================
+
+def _calculate_url_stats_chunk(url_group_data, status_field, rt_field):
+    """
+    Calculate statistics for a chunk of URL groups in parallel worker.
+
+    Args:
+        url_group_data: List of (url, group_df) tuples
+        status_field: Status code field name
+        rt_field: Response time field name
+
+    Returns:
+        List of URL statistics dicts
+    """
+    url_stats = []
+
+    for url, group in url_group_data:
+        stat = {
+            'url': url,
+            'count': len(group)
+        }
+
+        # Status code distribution
+        if status_field in group.columns:
+            status_counts = group[status_field].value_counts().to_dict()
+            stat['statusCodes'] = {str(k): int(v) for k, v in status_counts.items() if pd.notna(k)}
+
+        # Response time statistics
+        if rt_field in group.columns:
+            rt_data = group[rt_field].dropna()
+            if not rt_data.empty:
+                stat['responseTime'] = {
+                    'avg': float(rt_data.mean()),
+                    'median': float(rt_data.median()),
+                    'std': float(rt_data.std()),
+                    'min': float(rt_data.min()),
+                    'max': float(rt_data.max()),
+                    'p90': float(rt_data.quantile(0.9)),
+                    'p95': float(rt_data.quantile(0.95)),
+                    'p99': float(rt_data.quantile(0.99))
+                }
+
+        url_stats.append(stat)
+
+    return url_stats
+
+
+def _calculate_time_stats_chunk(time_group_data, status_field, rt_field):
+    """
+    Calculate statistics for a chunk of time groups in parallel worker.
+
+    Args:
+        time_group_data: List of (time_bucket, group_df) tuples
+        status_field: Status code field name
+        rt_field: Response time field name
+
+    Returns:
+        List of time statistics dicts
+    """
+    time_stats = []
+
+    for time_bucket, group in time_group_data:
+        stat = {
+            'time': time_bucket.isoformat() if pd.notna(time_bucket) else None,
+            'count': len(group)
+        }
+
+        # Status code distribution
+        if status_field in group.columns:
+            error_count = (group[status_field] >= 400).sum()
+            stat['errorCount'] = int(error_count)
+            stat['errorRate'] = float(error_count / len(group)) if len(group) > 0 else 0.0
+
+        # Response time statistics
+        if rt_field in group.columns:
+            rt_data = group[rt_field].dropna()
+            if not rt_data.empty:
+                stat['avgResponseTime'] = float(rt_data.mean())
+                stat['p95ResponseTime'] = float(rt_data.quantile(0.95))
+
+        time_stats.append(stat)
+
+    return time_stats
+
+
+def _calculate_ip_stats_chunk(ip_group_data, status_field, rt_field):
+    """
+    Calculate statistics for a chunk of IP groups in parallel worker.
+
+    Args:
+        ip_group_data: List of (ip, group_df) tuples
+        status_field: Status code field name
+        rt_field: Response time field name
+
+    Returns:
+        List of IP statistics dicts
+    """
+    ip_stats = []
+
+    for ip, group in ip_group_data:
+        stat = {
+            'ip': ip,
+            'count': len(group)
+        }
+
+        # Status code distribution
+        if status_field in group.columns:
+            error_count = (group[status_field] >= 400).sum()
+            stat['errorCount'] = int(error_count)
+
+        # Response time average
+        if rt_field in group.columns:
+            rt_data = group[rt_field].dropna()
+            if not rt_data.empty:
+                stat['avgResponseTime'] = float(rt_data.mean())
+
+        ip_stats.append(stat)
+
+    return ip_stats
+
+
+# ============================================================================
 # MCP Tool: calculateStats
 # ============================================================================
 
 def calculateStats(
     inputFile: str,
     logFormatFile: str,
-    params: str = ''
+    params: str = '',
+    use_multiprocessing: bool = True,
+    num_workers: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Calculate statistics from access log.
@@ -1015,18 +1142,18 @@ def calculateStats(
     
     # Calculate statistics
     result = {}
-    
+
     if 'summary' in stats_types:
         result['summary'] = _calculate_summary_stats(log_df, url_field, ip_field, status_field, rt_field)
-    
+
     if 'url' in stats_types:
-        result['urlStats'] = _calculate_url_stats(log_df, url_field, status_field, rt_field)
-    
+        result['urlStats'] = _calculate_url_stats(log_df, url_field, status_field, rt_field, use_multiprocessing, num_workers)
+
     if 'time' in stats_types:
-        result['timeStats'] = _calculate_time_stats(log_df, time_field, status_field, rt_field, time_interval)
-    
+        result['timeStats'] = _calculate_time_stats(log_df, time_field, status_field, rt_field, time_interval, use_multiprocessing, num_workers)
+
     if 'ip' in stats_types:
-        result['ipStats'] = _calculate_ip_stats(log_df, ip_field, status_field, rt_field)
+        result['ipStats'] = _calculate_ip_stats(log_df, ip_field, status_field, rt_field, use_multiprocessing, num_workers)
     
     # Generate output file
     input_path = Path(inputFile)
@@ -1079,55 +1206,63 @@ def _calculate_summary_stats(log_df, url_field, ip_field, status_field, rt_field
     return stats
 
 
-def _calculate_url_stats(log_df, url_field, status_field, rt_field):
-    """Calculate per-URL statistics"""
+def _calculate_url_stats(log_df, url_field, status_field, rt_field, use_multiprocessing=True, num_workers=None):
+    """Calculate per-URL statistics with optional parallel processing"""
     if url_field not in log_df.columns:
         return []
-    
+
     # Group by URL
     url_groups = log_df.groupby(url_field)
-    
-    url_stats = []
-    
-    for url, group in url_groups:
-        stat = {
-            'url': url,
-            'count': len(group)
-        }
-        
-        # Status code distribution
-        if status_field in group.columns:
-            status_counts = group[status_field].value_counts().to_dict()
-            stat['statusCodes'] = {str(k): int(v) for k, v in status_counts.items() if pd.notna(k)}
-        
-        # Response time statistics
-        if rt_field in group.columns:
-            rt_data = group[rt_field].dropna()
-            if not rt_data.empty:
-                stat['responseTime'] = {
-                    'avg': float(rt_data.mean()),
-                    'median': float(rt_data.median()),
-                    'std': float(rt_data.std()),
-                    'min': float(rt_data.min()),
-                    'max': float(rt_data.max()),
-                    'p90': float(rt_data.quantile(0.9)),
-                    'p95': float(rt_data.quantile(0.95)),
-                    'p99': float(rt_data.quantile(0.99))
-                }
-        
-        url_stats.append(stat)
-    
+    num_groups = len(url_groups)
+
+    logger.info(f"Calculating statistics for {num_groups} unique URLs")
+
+    # Use multiprocessing for large number of groups
+    if use_multiprocessing and num_groups >= 100:
+        if num_workers is None:
+            num_workers = min(cpu_count(), max(1, num_groups // 100))
+
+        logger.info(f"Using multiprocessing with {num_workers} workers for URL stats")
+
+        # Convert groups to list for chunking
+        group_list = [(url, group) for url, group in url_groups]
+
+        # Split into chunks
+        chunk_size = max(1, len(group_list) // (num_workers * 4))
+        chunks = [group_list[i:i + chunk_size] for i in range(0, len(group_list), chunk_size)]
+
+        # Process in parallel
+        worker_fn = partial(_calculate_url_stats_chunk, status_field=status_field, rt_field=rt_field)
+
+        with Pool(processes=num_workers) as pool:
+            results = pool.map(worker_fn, chunks)
+
+        # Combine results
+        url_stats = []
+        for chunk_result in results:
+            url_stats.extend(chunk_result)
+
+        logger.info(f"Parallel URL stats calculation completed: {len(url_stats)} URLs processed")
+    else:
+        # Sequential processing
+        logger.info("Using sequential processing for URL stats")
+        url_stats = _calculate_url_stats_chunk(
+            [(url, group) for url, group in url_groups],
+            status_field,
+            rt_field
+        )
+
     # Sort by count (descending)
     url_stats.sort(key=lambda x: x['count'], reverse=True)
-    
+
     return url_stats
 
 
-def _calculate_time_stats(log_df, time_field, status_field, rt_field, interval):
-    """Calculate time-series statistics"""
+def _calculate_time_stats(log_df, time_field, status_field, rt_field, interval, use_multiprocessing=True, num_workers=None):
+    """Calculate time-series statistics with optional parallel processing"""
     if time_field not in log_df.columns:
         return []
-    
+
     # Parse interval
     freq_map = {
         '1h': '1H',
@@ -1136,74 +1271,106 @@ def _calculate_time_stats(log_df, time_field, status_field, rt_field, interval):
         '5m': '5T',
         '1m': '1T'
     }
-    
+
     freq = freq_map.get(interval, '10T')
-    
+
     # Group by time interval
     log_df['time_bucket'] = log_df[time_field].dt.floor(freq)
     time_groups = log_df.groupby('time_bucket')
-    
-    time_stats = []
-    
-    for time_bucket, group in time_groups:
-        stat = {
-            'time': time_bucket.isoformat() if pd.notna(time_bucket) else None,
-            'count': len(group)
-        }
-        
-        # Status code distribution
-        if status_field in group.columns:
-            error_count = (group[status_field] >= 400).sum()
-            stat['errorCount'] = int(error_count)
-            stat['errorRate'] = float(error_count / len(group)) if len(group) > 0 else 0.0
-        
-        # Response time statistics
-        if rt_field in group.columns:
-            rt_data = group[rt_field].dropna()
-            if not rt_data.empty:
-                stat['avgResponseTime'] = float(rt_data.mean())
-                stat['p95ResponseTime'] = float(rt_data.quantile(0.95))
-        
-        time_stats.append(stat)
-    
+    num_groups = len(time_groups)
+
+    logger.info(f"Calculating statistics for {num_groups} time intervals")
+
+    # Use multiprocessing for large number of time buckets
+    if use_multiprocessing and num_groups >= 100:
+        if num_workers is None:
+            num_workers = min(cpu_count(), max(1, num_groups // 100))
+
+        logger.info(f"Using multiprocessing with {num_workers} workers for time stats")
+
+        # Convert groups to list for chunking
+        group_list = [(time_bucket, group) for time_bucket, group in time_groups]
+
+        # Split into chunks
+        chunk_size = max(1, len(group_list) // (num_workers * 4))
+        chunks = [group_list[i:i + chunk_size] for i in range(0, len(group_list), chunk_size)]
+
+        # Process in parallel
+        worker_fn = partial(_calculate_time_stats_chunk, status_field=status_field, rt_field=rt_field)
+
+        with Pool(processes=num_workers) as pool:
+            results = pool.map(worker_fn, chunks)
+
+        # Combine results
+        time_stats = []
+        for chunk_result in results:
+            time_stats.extend(chunk_result)
+
+        logger.info(f"Parallel time stats calculation completed: {len(time_stats)} intervals processed")
+    else:
+        # Sequential processing
+        logger.info("Using sequential processing for time stats")
+        time_stats = _calculate_time_stats_chunk(
+            [(time_bucket, group) for time_bucket, group in time_groups],
+            status_field,
+            rt_field
+        )
+
     # Sort by time
     time_stats.sort(key=lambda x: x['time'] if x['time'] else '')
-    
+
     return time_stats
 
 
-def _calculate_ip_stats(log_df, ip_field, status_field, rt_field):
-    """Calculate per-IP statistics"""
+def _calculate_ip_stats(log_df, ip_field, status_field, rt_field, use_multiprocessing=True, num_workers=None):
+    """Calculate per-IP statistics with optional parallel processing"""
     if ip_field not in log_df.columns:
         return []
-    
+
     # Group by IP
     ip_groups = log_df.groupby(ip_field)
-    
-    ip_stats = []
-    
-    for ip, group in ip_groups:
-        stat = {
-            'ip': ip,
-            'count': len(group)
-        }
-        
-        # Status code distribution
-        if status_field in group.columns:
-            error_count = (group[status_field] >= 400).sum()
-            stat['errorCount'] = int(error_count)
-        
-        # Response time average
-        if rt_field in group.columns:
-            rt_data = group[rt_field].dropna()
-            if not rt_data.empty:
-                stat['avgResponseTime'] = float(rt_data.mean())
-        
-        ip_stats.append(stat)
-    
+    num_groups = len(ip_groups)
+
+    logger.info(f"Calculating statistics for {num_groups} unique IPs")
+
+    # Use multiprocessing for large number of IPs
+    if use_multiprocessing and num_groups >= 100:
+        if num_workers is None:
+            num_workers = min(cpu_count(), max(1, num_groups // 100))
+
+        logger.info(f"Using multiprocessing with {num_workers} workers for IP stats")
+
+        # Convert groups to list for chunking
+        group_list = [(ip, group) for ip, group in ip_groups]
+
+        # Split into chunks
+        chunk_size = max(1, len(group_list) // (num_workers * 4))
+        chunks = [group_list[i:i + chunk_size] for i in range(0, len(group_list), chunk_size)]
+
+        # Process in parallel
+        worker_fn = partial(_calculate_ip_stats_chunk, status_field=status_field, rt_field=rt_field)
+
+        with Pool(processes=num_workers) as pool:
+            results = pool.map(worker_fn, chunks)
+
+        # Combine results
+        ip_stats = []
+        for chunk_result in results:
+            ip_stats.extend(chunk_result)
+
+        logger.info(f"Parallel IP stats calculation completed: {len(ip_stats)} IPs processed")
+    else:
+        # Sequential processing
+        logger.info("Using sequential processing for IP stats")
+        ip_stats = _calculate_ip_stats_chunk(
+            [(ip, group) for ip, group in ip_groups],
+            status_field,
+            rt_field
+        )
+
     # Sort by count (descending)
     ip_stats.sort(key=lambda x: x['count'], reverse=True)
-    
+
     # Limit to top 100 IPs
     return ip_stats[:100]
 
@@ -1238,6 +1405,361 @@ def _generate_summary_text(result, stats_types):
         lines.append(f"\nUnique IPs: {len(result['ipStats'])}")
     
     return '\n'.join(lines)
+
+
+# ============================================================================
+# MCP Tool: createPivotVisualization
+# ============================================================================
+
+def createPivotVisualization(
+    inputFile: str,
+    logFormatFile: str,
+    rowField: str,
+    columnField: str,
+    valueField: str,
+    valueAggFunc: str = 'count',
+    rowFilter: Optional[str] = None,
+    topN: int = 20,
+    chartType: str = 'line',
+    outputFormat: str = 'html',
+    params: str = '',
+    use_multiprocessing: bool = True,
+    num_workers: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Excel 피벗 테이블 스타일의 유연한 집계 및 시각화.
+
+    Args:
+        inputFile (str): Input log file path
+        logFormatFile (str): Log format JSON file path
+        rowField (str): Row dimension field ('url', 'client_ip', 'status', etc.)
+        columnField (str): Column dimension field ('time', 'status', 'method', etc.)
+        valueField (str): Value field to aggregate ('count', field name, or 'error_rate')
+        valueAggFunc (str): Aggregation function ('count', 'sum', 'avg', 'min', 'max', 'p50', 'p90', 'p95', 'p99')
+        rowFilter (str): Row filtering (e.g., 'top:20:sum:sent_bytes', 'top:10:count', 'threshold:sent_bytes:>:1000000')
+        topN (int): Number of top rows to display (default: 20)
+        chartType (str): Chart type ('line', 'bar', 'heatmap', 'area', 'stacked_bar', 'stacked_area', 'facet')
+        outputFormat (str): Output format ('html', 'json')
+        params (str): Additional parameters (e.g., 'timeInterval=1h;statusGroups=2xx,4xx,5xx')
+        use_multiprocessing (bool): Enable multiprocessing
+        num_workers (int): Number of workers
+
+    Returns:
+        dict: {
+            'filePath': str (absolute path to output file),
+            'chartType': str,
+            'rows': int,
+            'columns': int,
+            'totalRecords': int
+        }
+
+    Examples:
+        # 케이스 1: sent_bytes 상위 20개 URI의 시간대별 호출건수
+        createPivotVisualization(
+            "access.log.gz", "format.json",
+            rowField="url",
+            columnField="time",
+            valueField="count",
+            valueAggFunc="count",
+            rowFilter="top:20:sum:sent_bytes",
+            chartType="line",
+            params="timeInterval=1h"
+        )
+
+        # 케이스 2: Status Code별 분석
+        createPivotVisualization(
+            "access.log.gz", "format.json",
+            rowField="url",
+            columnField="elb_status_code",
+            valueField="count",
+            valueAggFunc="count",
+            rowFilter="top:10:count",
+            chartType="heatmap",
+            params="statusGroups=2xx,4xx,5xx"
+        )
+
+        # 케이스 3: 응답시간 p95 분석
+        createPivotVisualization(
+            "access.log.gz", "format.json",
+            rowField="url",
+            columnField="time",
+            valueField="target_processing_time",
+            valueAggFunc="p95",
+            rowFilter="top:15:avg:target_processing_time",
+            chartType="heatmap",
+            params="timeInterval=5m"
+        )
+    """
+    # Validate inputs
+    if not inputFile or not os.path.exists(inputFile):
+        raise CustomFileNotFoundError(inputFile)
+    if not logFormatFile or not os.path.exists(logFormatFile):
+        raise CustomFileNotFoundError(logFormatFile)
+
+    # Validate parameters
+    valid_agg_funcs = ['count', 'sum', 'avg', 'min', 'max', 'p50', 'p90', 'p95', 'p99', 'error_rate']
+    if valueAggFunc not in valid_agg_funcs:
+        raise ValidationError('valueAggFunc', f"Invalid aggregation function: {valueAggFunc}. Must be one of: {valid_agg_funcs}")
+
+    valid_chart_types = ['line', 'bar', 'heatmap', 'area', 'stacked_bar', 'stacked_area', 'facet']
+    if chartType not in valid_chart_types:
+        raise ValidationError('chartType', f"Invalid chart type: {chartType}. Must be one of: {valid_chart_types}")
+
+    logger.info(f"Creating pivot visualization: row={rowField}, column={columnField}, value={valueField}, agg={valueAggFunc}")
+
+    # Parse parameters
+    param_dict = _parse_params(params)
+    time_interval = param_dict.get('timeInterval', '10m')
+    status_groups = param_dict.get('statusGroups', '').split(',') if param_dict.get('statusGroups') else None
+
+    # Load log format
+    with open(logFormatFile, 'r', encoding='utf-8') as f:
+        format_info = json.load(f)
+
+    # Parse log file
+    from data_parser import parse_log_file_with_format
+    log_df = parse_log_file_with_format(inputFile, logFormatFile, use_multiprocessing, num_workers)
+
+    if log_df.empty:
+        raise ValueError("No data to analyze")
+
+    total_records = len(log_df)
+    logger.info(f"Loaded {total_records} records for pivot analysis")
+
+    # Get field mappings
+    field_map = format_info.get('fieldMap', {})
+
+    # Map logical names to actual column names
+    row_col = _get_actual_field_name(rowField, field_map, log_df)
+    col_col = _get_actual_field_name(columnField, field_map, log_df)
+    val_col = _get_actual_field_name(valueField, field_map, log_df) if valueField != 'count' else None
+
+    # Convert column types
+    if col_col in log_df.columns:
+        if columnField == 'time' or 'time' in columnField.lower():
+            log_df[col_col] = pd.to_datetime(log_df[col_col], errors='coerce')
+
+    if val_col and val_col in log_df.columns:
+        log_df[val_col] = pd.to_numeric(log_df[val_col], errors='coerce')
+
+    # Apply row filtering
+    if rowFilter:
+        log_df = _apply_row_filter(log_df, row_col, val_col, rowFilter, topN, field_map)
+
+    # Create pivot table
+    pivot_df = _create_pivot_table(
+        log_df,
+        row_col,
+        col_col,
+        val_col,
+        valueField,
+        valueAggFunc,
+        time_interval if columnField == 'time' else None,
+        status_groups if columnField in ['status', 'elb_status_code'] else None
+    )
+
+    logger.info(f"Pivot table created: {len(pivot_df)} rows x {len(pivot_df.columns)} columns")
+
+    # Generate visualization
+    from data_visualizer import generate_pivot_chart
+
+    input_path = Path(inputFile)
+    timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
+    output_file = input_path.parent / f"pivot_{chartType}_{timestamp}.{outputFormat}"
+
+    if outputFormat == 'html':
+        generate_pivot_chart(
+            pivot_df,
+            output_file,
+            chartType,
+            title=f"{rowField} by {columnField} ({valueAggFunc}({valueField}))",
+            row_field=rowField,
+            column_field=columnField,
+            value_field=valueField,
+            agg_func=valueAggFunc
+        )
+    elif outputFormat == 'json':
+        # Save pivot table as JSON
+        pivot_df.to_json(output_file, orient='split', indent=2)
+
+    return {
+        'filePath': str(output_file.resolve()),
+        'chartType': chartType,
+        'rows': len(pivot_df),
+        'columns': len(pivot_df.columns),
+        'totalRecords': total_records,
+        'outputFormat': outputFormat
+    }
+
+
+def _get_actual_field_name(logical_name: str, field_map: Dict[str, str], df: pd.DataFrame) -> str:
+    """Get actual column name from logical field name"""
+    # Try direct column name first
+    if logical_name in df.columns:
+        return logical_name
+
+    # Try field map
+    if logical_name in field_map:
+        actual_name = field_map[logical_name]
+        if actual_name in df.columns:
+            return actual_name
+
+    # Try common aliases
+    aliases = {
+        'time': ['timestamp', 'time', '@timestamp', 'datetime'],
+        'url': ['request_url', 'url', 'uri', 'request_uri'],
+        'status': ['elb_status_code', 'status', 'status_code'],
+        'responseTime': ['target_processing_time', 'response_time'],
+        'clientIp': ['client_ip', 'remote_addr', 'ip']
+    }
+
+    for alias_key, alias_list in aliases.items():
+        if logical_name in alias_list:
+            for alias in alias_list:
+                if alias in df.columns:
+                    return alias
+
+    raise ValidationError(logical_name, f"Field '{logical_name}' not found in log data")
+
+
+def _apply_row_filter(
+    df: pd.DataFrame,
+    row_col: str,
+    val_col: Optional[str],
+    row_filter: str,
+    top_n: int,
+    field_map: Dict[str, str]
+) -> pd.DataFrame:
+    """Apply row filtering based on filter specification"""
+    parts = row_filter.split(':')
+
+    if parts[0] == 'top':
+        # Format: top:N:agg_func:field
+        # Example: top:20:sum:sent_bytes
+        n = int(parts[1]) if len(parts) > 1 else top_n
+        agg_func = parts[2] if len(parts) > 2 else 'count'
+        field = parts[3] if len(parts) > 3 else val_col
+
+        if field and field != 'count':
+            actual_field = _get_actual_field_name(field, field_map, df)
+            df[actual_field] = pd.to_numeric(df[actual_field], errors='coerce')
+
+            # Aggregate by row field
+            if agg_func == 'count':
+                top_rows = df.groupby(row_col).size().nlargest(n).index
+            elif agg_func == 'sum':
+                top_rows = df.groupby(row_col)[actual_field].sum().nlargest(n).index
+            elif agg_func == 'avg':
+                top_rows = df.groupby(row_col)[actual_field].mean().nlargest(n).index
+            elif agg_func == 'max':
+                top_rows = df.groupby(row_col)[actual_field].max().nlargest(n).index
+            else:
+                logger.warning(f"Unknown aggregation function: {agg_func}, using count")
+                top_rows = df.groupby(row_col).size().nlargest(n).index
+        else:
+            # Count-based filtering
+            top_rows = df.groupby(row_col).size().nlargest(n).index
+
+        df = df[df[row_col].isin(top_rows)]
+        logger.info(f"Applied top {n} filter by {agg_func}, remaining records: {len(df)}")
+
+    elif parts[0] == 'threshold':
+        # Format: threshold:field:operator:value
+        # Example: threshold:sent_bytes:>:1000000
+        field = parts[1]
+        operator = parts[2]
+        value = float(parts[3])
+
+        actual_field = _get_actual_field_name(field, field_map, df)
+        df[actual_field] = pd.to_numeric(df[actual_field], errors='coerce')
+
+        if operator == '>':
+            df = df[df[actual_field] > value]
+        elif operator == '>=':
+            df = df[df[actual_field] >= value]
+        elif operator == '<':
+            df = df[df[actual_field] < value]
+        elif operator == '<=':
+            df = df[df[actual_field] <= value]
+        elif operator == '==':
+            df = df[df[actual_field] == value]
+
+        logger.info(f"Applied threshold filter {field} {operator} {value}, remaining records: {len(df)}")
+
+    return df
+
+
+def _create_pivot_table(
+    df: pd.DataFrame,
+    row_col: str,
+    col_col: str,
+    val_col: Optional[str],
+    value_field: str,
+    agg_func: str,
+    time_interval: Optional[str] = None,
+    status_groups: Optional[List[str]] = None
+) -> pd.DataFrame:
+    """Create pivot table with specified aggregation"""
+
+    # Handle time bucketing
+    if time_interval and pd.api.types.is_datetime64_any_dtype(df[col_col]):
+        # Parse time interval
+        freq_map = {
+            '1s': '1S', '10s': '10S', '30s': '30S',
+            '1m': '1T', '5m': '5T', '10m': '10T', '30m': '30T',
+            '1h': '1H', '6h': '6H', '12h': '12H', '1d': '1D'
+        }
+        freq = freq_map.get(time_interval, '10T')
+        df[col_col] = df[col_col].dt.floor(freq)
+
+    # Handle status code grouping
+    if status_groups and col_col in df.columns:
+        def group_status(status):
+            try:
+                status_int = int(status)
+                if status_int < 300:
+                    return '2xx'
+                elif status_int < 400:
+                    return '3xx'
+                elif status_int < 500:
+                    return '4xx'
+                else:
+                    return '5xx'
+            except:
+                return 'Unknown'
+
+        df[col_col + '_grouped'] = df[col_col].apply(group_status)
+        col_col = col_col + '_grouped'
+
+    # Handle special value fields
+    if value_field == 'error_rate':
+        # Calculate error rate
+        status_field = _get_actual_field_name('status', {}, df)
+        df['_is_error'] = pd.to_numeric(df[status_field], errors='coerce') >= 400
+        pivot_df = df.groupby([row_col, col_col])['_is_error'].mean().unstack(fill_value=0)
+    elif value_field == 'count' or val_col is None:
+        # Count aggregation
+        pivot_df = df.groupby([row_col, col_col]).size().unstack(fill_value=0)
+    else:
+        # Field-based aggregation
+        if agg_func == 'count':
+            pivot_df = df.groupby([row_col, col_col])[val_col].count().unstack(fill_value=0)
+        elif agg_func == 'sum':
+            pivot_df = df.groupby([row_col, col_col])[val_col].sum().unstack(fill_value=0)
+        elif agg_func == 'avg':
+            pivot_df = df.groupby([row_col, col_col])[val_col].mean().unstack(fill_value=0)
+        elif agg_func == 'min':
+            pivot_df = df.groupby([row_col, col_col])[val_col].min().unstack(fill_value=0)
+        elif agg_func == 'max':
+            pivot_df = df.groupby([row_col, col_col])[val_col].max().unstack(fill_value=0)
+        elif agg_func.startswith('p'):
+            # Percentile
+            percentile = int(agg_func[1:]) / 100.0
+            pivot_df = df.groupby([row_col, col_col])[val_col].quantile(percentile).unstack(fill_value=0)
+        else:
+            raise ValueError(f"Unknown aggregation function: {agg_func}")
+
+    return pivot_df
 
 
 # ============================================================================

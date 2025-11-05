@@ -107,12 +107,26 @@ Access Log Analyzer는 대용량 웹 서버 접근 로그를 분석하기 위한
   "logPattern": "string",
   "patternType": "HTTPD|GROK|JSON|ALB",
   "fieldMap": {
+    "type": "string",
     "timestamp": "string",
-    "method": "string",
+    "loadbalancer": "string",
+    "clientIp": "string",
+    "targetIp": "string",
+    "request_processing_time": "float",
+    "target_processing_time": "float",
+    "response_processing_time": "float",
+    "elb_status_code": "int",
+    "target_status_code": "int",
+    "received_bytes": "int",
+    "sent_bytes": "int",
+    "request_verb": "str",
     "url": "string",
-    "status": "string",
-    "responseTime": "string",
-    "clientIp": "string"
+    "request_proto": "str",
+    "user_agent": "string",
+    "request_creation_time": "string",
+    "target_group_arn": "string",
+    "actions_executed": "string",
+    "redirect_url": "string"
   },
   "responseTimeUnit": "s|ms|us|ns",
   "timezone": "string",
@@ -351,6 +365,123 @@ calculateStats("access.log", "pattern.json", "statsType=time,url;timeInterval=1h
   - **시간 범위 자동 계산**: 로그 데이터에서 자동으로 시간 범위 계산
   - **Others 패턴 표시**: 패턴에 포함되지 않는 모든 URL을 "Others"로 그룹화하여 표시
 
+#### 5.3 createPivotVisualization
+- **기능**: Excel 피벗 테이블 스타일의 유연한 집계 및 시각화 (다양한 차원과 메트릭 조합 지원)
+- **파라미터**:
+  - `inputFile` (String): 입력 로그 파일 경로 (절대 경로 또는 working directory 기준)
+  - `logFormatFile` (String): 로그 포맷 파일 경로 (recommendAccessLogFormat 결과, 필수)
+  - `rowField` (String, 필수): 행 차원 필드 (예: 'url', 'client_ip', 'status', 'method')
+  - `columnField` (String, 필수): 열 차원 필드 (예: 'time', 'status', 'method', 'elb_status_code')
+  - `valueField` (String, 필수): 집계할 값 필드 (예: 'count', 'sent_bytes', 'target_processing_time', 'error_rate')
+  - `valueAggFunc` (String, 선택): 집계 함수 (기본값: 'count')
+    - 지원 함수: 'count', 'sum', 'avg', 'min', 'max', 'p50', 'p90', 'p95', 'p99', 'error_rate'
+  - `rowFilter` (String, 선택): 행 필터링 조건
+    - 형식: `'top:N:agg_func:field'` (예: 'top:20:sum:sent_bytes' - sent_bytes 합계 상위 20개)
+    - 형식: `'threshold:field:operator:value'` (예: 'threshold:sent_bytes:>:1000000' - 1MB 이상)
+  - `topN` (int, 선택): 표시할 상위 행 수 (기본값: 20)
+  - `chartType` (String, 선택): 차트 타입 (기본값: 'line')
+    - 지원 타입: 'line', 'bar', 'heatmap', 'area', 'stacked_bar', 'stacked_area', 'facet'
+  - `outputFormat` (String, 선택): 출력 형식 ('html' 또는 'json', 기본값: 'html')
+  - `params` (String, 선택): 추가 파라미터 문자열
+    - `timeInterval`: 시간 집계 간격 (예: '1h', '30m', '10m', '5m', '1m')
+    - `statusGroups`: Status code 그룹핑 (예: '2xx,4xx,5xx')
+- **반환**:
+  ```json
+  {
+    "filePath": "string (pivot_*.html 또는 pivot_*.json)",
+    "chartType": "string",
+    "rows": "int (피벗 테이블 행 수)",
+    "columns": "int (피벗 테이블 열 수)",
+    "totalRecords": "int (전체 레코드 수)",
+    "outputFormat": "string"
+  }
+  ```
+- **사용 예시**:
+  ```python
+  # 케이스 1: sent_bytes 상위 20개 URI의 시간대별 호출건수
+  createPivotVisualization(
+      inputFile="access.log.gz",
+      logFormatFile="format.json",
+      rowField="url",
+      columnField="time",
+      valueField="count",
+      valueAggFunc="count",
+      rowFilter="top:20:sum:sent_bytes",
+      chartType="line",
+      params="timeInterval=1h"
+  )
+
+  # 케이스 2: Status Code별 분석 (히트맵)
+  createPivotVisualization(
+      inputFile="access.log.gz",
+      logFormatFile="format.json",
+      rowField="url",
+      columnField="elb_status_code",
+      valueField="count",
+      valueAggFunc="count",
+      rowFilter="top:10:count",
+      chartType="heatmap",
+      params="statusGroups=2xx,4xx,5xx"
+  )
+
+  # 케이스 3: 응답시간 p95 분석
+  createPivotVisualization(
+      inputFile="access.log.gz",
+      logFormatFile="format.json",
+      rowField="url",
+      columnField="time",
+      valueField="target_processing_time",
+      valueAggFunc="p95",
+      rowFilter="top:15:avg:target_processing_time",
+      chartType="heatmap",
+      params="timeInterval=5m"
+  )
+
+  # 케이스 4: Client IP별 트래픽 분석
+  createPivotVisualization(
+      inputFile="access.log.gz",
+      logFormatFile="format.json",
+      rowField="client_ip",
+      columnField="time",
+      valueField="sent_bytes",
+      valueAggFunc="sum",
+      rowFilter="top:20:sum:sent_bytes",
+      chartType="stacked_area",
+      params="timeInterval=10m"
+  )
+
+  # 케이스 5: 에러율 분석 (다차원 facet)
+  createPivotVisualization(
+      inputFile="access.log.gz",
+      logFormatFile="format.json",
+      rowField="url",
+      columnField="time",
+      valueField="error_rate",
+      valueAggFunc="error_rate",
+      rowFilter="top:12:count",
+      chartType="facet",
+      params="timeInterval=30m"
+  )
+  ```
+- **특징**:
+  - **Excel 피벗 테이블 스타일**: 행, 열, 값을 자유롭게 조합하여 다차원 분석
+  - **다양한 집계 함수**: count, sum, avg, percentile (p50, p90, p95, p99), error_rate
+  - **유연한 필터링**:
+    - 상위 N개 추출 (임의의 필드 기준 집계)
+    - 임계값 기반 필터링
+  - **다양한 차트 타입**:
+    - **line**: 시계열 라인 차트 (트렌드 분석)
+    - **bar**: 그룹 바 차트 (비교 분석)
+    - **heatmap**: 히트맵 (패턴 발견)
+    - **area**: 영역 차트 (누적 트렌드)
+    - **stacked_bar**: 스택 바 차트 (구성 비율)
+    - **stacked_area**: 스택 영역 차트 (누적 구성)
+    - **facet**: 소형 다중 차트 (개별 트렌드 비교)
+  - **자동 시간 버킷팅**: columnField='time'일 때 지정된 간격으로 자동 그룹핑
+  - **Status Code 그룹핑**: 2xx, 3xx, 4xx, 5xx로 자동 그룹화 가능
+  - **Plotly 인터랙티브 차트**: 줌, 팬, hover, 범례 필터링 등 지원
+  - **JSON 출력**: 피벗 테이블을 JSON으로 저장하여 후처리 가능
+
 ### 도구 요약 표
 
 | 진행 | 이름 | 설명 | 중요도 | 우선순위 | 난이도 | 비고 |
@@ -363,6 +494,7 @@ calculateStats("access.log", "pattern.json", "statsType=time,url;timeInterval=1h
 | [v] | generateRequestPerURI | URI별 시계열 그래프  (인터랙티브 HTML) | 상 | 1 | 중 | topN/interval/patternsFile 파라미터 지원; 패턴 파일 기반 URL generalization; Others 패턴 처리; 체크박스 필터링(Regex 지원); Hover 정보 표시 |
 | [v] | extractUriPatterns | URL/URI 패턴 추출 | 상 | 1 | 상 | patternRules 자동 생성; 절대 경로 반환; 입력 검증 |
 | [v] | filterUriPatterns | URI 패턴 필터링(포함/제외 패턴) | 중 | 1 | 하 | excludePatterns/includePatterns 지원 |
+| [v] | createPivotVisualization | Excel 피벗 스타일 유연한 집계/시각화 | 최상 | 1 | 상 | 7가지 차트 타입; 다양한 집계 함수(p50/p95/p99/error_rate); 유연한 행/열 필터링; 다차원 분석 지원 |
 
 ## 패턴 파일 및 URL Generalization 설계
 

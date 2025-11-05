@@ -16,6 +16,9 @@ from datetime import datetime
 from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
+from multiprocessing import Pool, cpu_count
+from functools import partial
+import itertools
 
 # Import core modules
 from core.exceptions import (
@@ -416,15 +419,81 @@ def parseAccessLog(logLine, logPattern):
 # Helper Functions for File Parsing
 # ============================================================================
 
-def parse_log_file_with_format(input_file, log_format_file):
+def _parse_lines_chunk(lines_chunk, pattern, pattern_type, format_info):
+    """
+    Parse a chunk of lines in parallel worker process.
+
+    Args:
+        lines_chunk: List of (line_num, line) tuples
+        pattern: Regex pattern
+        pattern_type: Pattern type (ALB, JSON, HTTPD, GROK)
+        format_info: Format information dict
+
+    Returns:
+        Tuple of (parsed_data, failed_lines)
+    """
+    parsed_data = []
+    failed_lines = []
+
+    for line_num, line in lines_chunk:
+        original_line = line.rstrip('\n\r')
+        parsed = _parse_line(line, pattern, pattern_type, format_info)
+        if parsed:
+            parsed_data.append(parsed)
+        else:
+            if original_line.strip():
+                failed_lines.append((line_num, original_line))
+
+    return parsed_data, failed_lines
+
+
+def _read_lines_from_file(input_file, max_lines=None):
+    """
+    Read lines from file (gzip or plain text) with line numbers.
+
+    Args:
+        input_file: Path to input file
+        max_lines: Maximum number of lines to read (None for all)
+
+    Returns:
+        List of (line_num, line) tuples
+    """
+    lines = []
+
+    try:
+        # Try gzip first
+        try:
+            with gzip.open(input_file, 'rt', encoding='utf-8') as f:
+                for line_num, line in enumerate(f, 1):
+                    lines.append((line_num, line))
+                    if max_lines and line_num >= max_lines:
+                        break
+        except (gzip.BadGzipFile, OSError):
+            # Try plain text
+            with open(input_file, 'r', encoding='utf-8', errors='ignore') as f:
+                for line_num, line in enumerate(f, 1):
+                    lines.append((line_num, line))
+                    if max_lines and line_num >= max_lines:
+                        break
+    except Exception as e:
+        logger.error(f"Error reading file {input_file}: {e}")
+        raise
+
+    return lines
+
+
+def parse_log_file_with_format(input_file, log_format_file, use_multiprocessing=True, num_workers=None, chunk_size=10000):
     """
     Parse log file using a log format file (from recommendAccessLogFormat).
     Supports both original log files and JSON Lines files (filtered results).
-    
+
     Args:
         input_file (str): Input log file path
         log_format_file (str): Log format JSON file path
-        
+        use_multiprocessing (bool): Enable multiprocessing for large files (default: True)
+        num_workers (int): Number of worker processes (default: cpu_count())
+        chunk_size (int): Number of lines per chunk for parallel processing (default: 10000)
+
     Returns:
         pandas.DataFrame: Parsed log data
     """
@@ -520,38 +589,57 @@ def parse_log_file_with_format(input_file, log_format_file):
     # Parse file as original log format
     log_data = []
     failed_lines = []  # Collect failed lines for output
-    
+
+    # Determine if we should use multiprocessing
+    # Get total line count estimate for decision
     try:
-        # Try gzip first
-        try:
-            with gzip.open(input_file, 'rt', encoding='utf-8') as f:
-                for line_num, line in enumerate(f, 1):
-                    original_line = line.rstrip('\n\r')  # Keep original for error output
-                    parsed = _parse_line(line, pattern, pattern_type, format_info)
-                    if parsed:
-                        log_data.append(parsed)
-                    else:
-                        # Collect failed lines (파싱에 실패한 라인은 화면에 출력함)
-                        if original_line.strip():  # Only collect non-empty lines
-                            failed_lines.append((line_num, original_line))
-                    if line_num % 10000 == 0:
-                        logger.debug(f"Processed {line_num} lines...")
-        except:
-            # Try plain text
-            with open(input_file, 'r', encoding='utf-8', errors='ignore') as f:
-                for line_num, line in enumerate(f, 1):
-                    original_line = line.rstrip('\n\r')  # Keep original for error output
-                    parsed = _parse_line(line, pattern, pattern_type, format_info)
-                    if parsed:
-                        log_data.append(parsed)
-                    else:
-                        # Collect failed lines (파싱에 실패한 라인은 화면에 출력함)
-                        if original_line.strip():  # Only collect non-empty lines
-                            failed_lines.append((line_num, original_line))
-                    if line_num % 10000 == 0:
-                        logger.debug(f"Processed {line_num} lines...")
+        lines_with_nums = _read_lines_from_file(input_file)
+        total_lines = len(lines_with_nums)
+        logger.info(f"Read {total_lines} lines from {input_file}")
+
+        # Use multiprocessing for large files (>= 10000 lines)
+        if use_multiprocessing and total_lines >= chunk_size:
+            # Determine number of workers
+            if num_workers is None:
+                num_workers = min(cpu_count(), max(1, total_lines // chunk_size))
+
+            logger.info(f"Using multiprocessing with {num_workers} workers, chunk_size={chunk_size}")
+
+            # Split lines into chunks
+            chunks = [lines_with_nums[i:i + chunk_size] for i in range(0, len(lines_with_nums), chunk_size)]
+
+            # Create worker function with fixed parameters
+            worker_fn = partial(_parse_lines_chunk, pattern=pattern, pattern_type=pattern_type, format_info=format_info)
+
+            # Process chunks in parallel
+            with Pool(processes=num_workers) as pool:
+                results = pool.map(worker_fn, chunks)
+
+            # Combine results
+            for parsed_chunk, failed_chunk in results:
+                log_data.extend(parsed_chunk)
+                failed_lines.extend(failed_chunk)
+
+            logger.info(f"Parallel parsing completed: {len(log_data)} entries parsed, {len(failed_lines)} failed")
+
+        else:
+            # Sequential processing for small files
+            logger.info("Using sequential processing (file too small or multiprocessing disabled)")
+
+            for line_num, line in lines_with_nums:
+                original_line = line.rstrip('\n\r')
+                parsed = _parse_line(line, pattern, pattern_type, format_info)
+                if parsed:
+                    log_data.append(parsed)
+                else:
+                    if original_line.strip():
+                        failed_lines.append((line_num, original_line))
+                if line_num % 10000 == 0:
+                    logger.debug(f"Processed {line_num} lines...")
+
     except Exception as e:
         logger.error(f"Error parsing file {input_file}: {e}")
+        raise
 
     # Output failed lines (파싱에 실패한 라인은 화면에 출력함)
     if failed_lines:
