@@ -84,6 +84,16 @@ AccesslogAnalyzer/
 - All `print()` statements replaced with proper logging
 - Daily rotating log files in `logs/` directory
 
+**core/utils.py** - Utility Classes (NEW)
+- `FieldMapper` - Smart field mapping with fallback alternatives
+  - `find_field()` - Find fields across different log formats
+  - `map_fields()` - Bulk field mapping with validation
+  - `validate_required_fields()` - Validation with clear errors
+- `ParamParser` - Type-safe parameter parsing
+  - `parse()` - Parse "key=value;key2=value2" format
+  - `get_bool/int/float/list()` - Type-safe value extraction
+  - Built-in validation with custom exceptions
+
 ### Core Modules
 
 **data_parser.py** - Log Format Detection and Parsing
@@ -96,6 +106,7 @@ AccesslogAnalyzer/
 - `filterByCondition(inputFile, logFormatFile, condition, params)`: Filters by time, status code, response time, client IP, URLs, or URI patterns
 - `extractUriPatterns(inputFile, logFormatFile, extractionType, params)`: Extracts unique URLs or generalized URI patterns (replaces IDs/UUIDs with `*`)
 - `calculateStats(inputFile, logFormatFile, params)`: Computes comprehensive statistics (summary, per-URL, time-series, per-IP)
+- `PatternRulesManager` - Thread-safe pattern caching class (replaces global variables)
 - All filtered data is saved as JSON Lines format for flexibility
 
 **data_visualizer.py** - Interactive Visualizations
@@ -278,12 +289,108 @@ port = config_mgr.get('server.port', default=8080)
 config_mgr.reload()
 ```
 
+## Using Utility Classes
+
+### FieldMapper - Smart Field Mapping
+
+```python
+from core.utils import FieldMapper
+import pandas as pd
+
+# Find a field with fallback alternatives
+df = pd.DataFrame({'timestamp': [...], 'request_url': [...]})
+format_info = {'fieldMap': {...}}
+
+time_field = FieldMapper.find_field(df, 'time', format_info)
+# Returns 'timestamp' if exact match not found
+
+# Map all common fields at once
+field_map = FieldMapper.map_fields(df, format_info)
+# Returns: {'timestamp': 'timestamp', 'url': 'request_url', ...}
+
+# Validate required fields
+FieldMapper.validate_required_fields(df, format_info, ['time', 'url'])
+# Raises ValidationError if any field missing
+```
+
+### ParamParser - Type-Safe Parameter Parsing
+
+```python
+from core.utils import ParamParser
+
+params = "startTime=2024-01-01;endTime=2024-12-31;topN=20;enabled=true"
+
+# Parse all parameters
+parsed = ParamParser.parse(params)
+# Returns: {'startTime': '2024-01-01', 'endTime': '2024-12-31', ...}
+
+# Get typed values
+start_time = ParamParser.get(params, 'startTime', required=True)
+top_n = ParamParser.get_int(params, 'topN', default=10)  # Returns int
+enabled = ParamParser.get_bool(params, 'enabled')  # Returns bool
+filters = ParamParser.get_list(params, 'filters', separator=',')  # Returns list
+```
+
+## Testing
+
+### Running Tests
+
+```bash
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_core_utils.py -v
+
+# Run with coverage
+pytest tests/ --cov=core --cov=data_parser --cov=data_processor
+```
+
+### Test Structure
+
+```
+tests/
+├── conftest.py              # Pytest fixtures (sample logs)
+├── test_core_exceptions.py  # Exception tests
+├── test_core_utils.py       # FieldMapper, ParamParser tests
+└── test_data_parser.py      # Parser tests
+```
+
+### Writing New Tests
+
+```python
+import pytest
+from core.exceptions import ValidationError
+
+def test_my_function():
+    """Test description"""
+    # Arrange
+    input_data = "test"
+
+    # Act
+    result = my_function(input_data)
+
+    # Assert
+    assert result == expected_value
+
+def test_error_handling():
+    """Test error handling"""
+    with pytest.raises(ValidationError):
+        my_function_with_invalid_input()
+```
+
 ## Working with the Codebase
 
 ### Adding a New MCP Tool
 
 1. **Implement the function** in appropriate module (`data_processor.py` or `data_visualizer.py`)
-   - Function signature: `def myTool(inputFile, logFormatFile, params='')`
+   - Add type hints: `def myTool(inputFile: str, logFormatFile: str, params: str = '') -> Dict[str, Any]:`
+   - Use custom exceptions: `raise CustomFileNotFoundError(inputFile)`
+   - Use logger: `logger.info("Processing...")`
+   - Use ParamParser for parameters: `topN = ParamParser.get_int(params, 'topN', default=20)`
    - Return a dict with `filePath` (absolute path) and metadata
 
 2. **Add tool registration** in `mcp_server.py`:
@@ -298,6 +405,8 @@ config_mgr.reload()
 3. **Add handler** in `mcp_server.py` `call_tool()` function
 
 4. **Add menu item** in `main.py` interactive menu
+
+5. **Write tests** in `tests/test_my_module.py`
 
 ### Debugging Parse Failures
 When log parsing fails, the system outputs:
