@@ -15,6 +15,16 @@ from collections import defaultdict, Counter
 from urllib.parse import urlparse, parse_qs
 import ipaddress
 
+# Import core modules
+from core.exceptions import (
+    FileNotFoundError as CustomFileNotFoundError,
+    ValidationError
+)
+from core.logging_config import get_logger
+
+# Setup logger
+logger = get_logger(__name__)
+
 
 # ============================================================================
 # MCP Tool: filterByCondition
@@ -40,11 +50,11 @@ def filterByCondition(inputFile, logFormatFile, condition, params):
     """
     # Validate inputs
     if not inputFile or not os.path.exists(inputFile):
-        raise ValueError(f"Input file not found: {inputFile}")
+        raise CustomFileNotFoundError(inputFile)
     if not logFormatFile or not os.path.exists(logFormatFile):
-        raise ValueError(f"Log format file not found: {logFormatFile}")
+        raise CustomFileNotFoundError(logFormatFile)
     if condition not in ['time', 'statusCode', 'responseTime', 'client', 'urls', 'uriPatterns']:
-        raise ValueError(f"Invalid condition: {condition}. Must be one of: time, statusCode, responseTime, client, urls, uriPatterns")
+        raise ValidationError('condition', f"Invalid condition: {condition}. Must be one of: time, statusCode, responseTime, client, urls, uriPatterns")
     
     # Parse parameters
     param_dict = _parse_params(params)
@@ -119,7 +129,7 @@ def _filter_by_time(log_df, params, format_info):
     time_field = format_info['fieldMap'].get('timestamp', 'time')
     
     if time_field not in log_df.columns:
-        print(f"Warning: Time field '{time_field}' not found in log data")
+        logger.warning(f"Time field '{time_field}' not found in log data")
         return log_df
     
     # Get timezone information from format
@@ -259,7 +269,7 @@ def _filter_by_status_code(log_df, params, format_info):
     status_field = format_info['fieldMap'].get('status', 'elb_status_code')
     
     if status_field not in log_df.columns:
-        print(f"Warning: Status field '{status_field}' not found in log data")
+        logger.warning(f"Status field '{status_field}' not found in log data")
         return log_df
     
     # Parse status codes (e.g., '2xx,5xx' or '200,404,500')
@@ -292,7 +302,7 @@ def _filter_by_response_time(log_df, params, format_info):
     rt_field = format_info['fieldMap'].get('responseTime', 'target_processing_time')
     
     if rt_field not in log_df.columns:
-        print(f"Warning: Response time field '{rt_field}' not found in log data")
+        logger.warning(f"Response time field '{rt_field}' not found in log data")
         return log_df
     
     # Convert to numeric
@@ -356,7 +366,7 @@ def _filter_by_client(log_df, params, format_info):
     ip_field = format_info['fieldMap'].get('clientIp', 'client_ip')
     
     if ip_field not in log_df.columns:
-        print(f"Warning: Client IP field '{ip_field}' not found in log data")
+        logger.warning(f"Client IP field '{ip_field}' not found in log data")
         return log_df
     
     # Parse client IPs (support CIDR notation)
@@ -377,7 +387,7 @@ def _filter_by_client(log_df, params, format_info):
                 network = ipaddress.ip_network(ip_pattern, strict=False)
                 mask |= log_df[ip_field].apply(lambda x: _ip_in_network(x, network))
             except:
-                print(f"Warning: Invalid CIDR notation: {ip_pattern}")
+                logger.warning(f"Invalid CIDR notation: {ip_pattern}")
         else:
             # Exact match
             mask |= (log_df[ip_field] == ip_pattern)
@@ -417,7 +427,7 @@ def _filter_by_urls(log_df, params, format_info):
     url_field = format_info['fieldMap'].get('url', 'request_url')
     
     if url_field not in log_df.columns:
-        print(f"Warning: URL field '{url_field}' not found in log data")
+        logger.warning(f"URL field '{url_field}' not found in log data")
         return log_df
     
     # Filter by URL set
@@ -448,7 +458,7 @@ def _filter_by_uri_patterns(log_df, params, format_info):
     url_field = format_info['fieldMap'].get('url', 'request_url')
     
     if url_field not in log_df.columns:
-        print(f"Warning: URL field '{url_field}' not found in log data")
+        logger.warning(f"URL field '{url_field}' not found in log data")
         return log_df
     
     # Match URLs against patterns
@@ -1255,9 +1265,9 @@ def aggregate_data(log_df):
 
 # Main function for testing
 if __name__ == "__main__":
-    print("Data Processor Module - MCP Tools")
-    print("Available tools:")
-    print("  - filterByCondition(inputFile, logFormatFile, condition, params)")
-    print("  - extractUriPatterns(inputFile, logFormatFile, extractionType, params)")
-    print("  - filterUriPatterns(urisFile, params)")
-    print("  - calculateStats(inputFile, logFormatFile, params)")
+    logger.info("Data Processor Module - MCP Tools")
+    logger.info("Available tools:")
+    logger.info("  - filterByCondition(inputFile, logFormatFile, condition, params)")
+    logger.info("  - extractUriPatterns(inputFile, logFormatFile, extractionType, params)")
+    logger.info("  - filterUriPatterns(urisFile, params)")
+    logger.info("  - calculateStats(inputFile, logFormatFile, params)")

@@ -16,6 +16,18 @@ from datetime import datetime
 from collections import Counter
 from pathlib import Path
 
+# Import core modules
+from core.exceptions import (
+    FileNotFoundError as CustomFileNotFoundError,
+    InvalidFormatError,
+    ParseError
+)
+from core.config import ConfigManager
+from core.logging_config import get_logger
+
+# Setup logger
+logger = get_logger(__name__)
+
 
 # ============================================================================
 # MCP Tool: recommendAccessLogFormat
@@ -45,7 +57,7 @@ def recommendAccessLogFormat(inputFile):
     """
     # Validate input first
     if not inputFile or not os.path.exists(inputFile):
-        raise ValueError(f"Input file not found: {inputFile}")
+        raise CustomFileNotFoundError(inputFile)
     
     input_path = Path(inputFile)
     
@@ -55,8 +67,8 @@ def recommendAccessLogFormat(inputFile):
     if log_format_files:
         # Use the most recent log format file
         latest_format_file = max(log_format_files, key=lambda p: p.stat().st_mtime)
-        print(f"  Found existing log format file: {latest_format_file}")
-        print(f"  Using existing format file (우선 탐색)")
+        logger.info(f"Found existing log format file: {latest_format_file}")
+        logger.info("Using existing format file (우선 탐색)")
         
         # Load and return existing format
         with open(latest_format_file, 'r', encoding='utf-8') as f:
@@ -103,11 +115,11 @@ def recommendAccessLogFormat(inputFile):
     
     # Output failed lines during format recommendation (파싱에 실패한 라인은 화면에 출력함)
     if failed_sample_lines:
-        print(f"\n⚠️  포맷 추천 단계에서 파싱에 실패한 샘플 라인 ({len(failed_sample_lines)}건):")
+        logger.warning(f"포맷 추천 단계에서 파싱에 실패한 샘플 라인 ({len(failed_sample_lines)}건):")
         for line_num, failed_line in failed_sample_lines[:10]:
-            print(f"  Sample Line {line_num}: {failed_line[:100]}...")  # Truncate long lines
+            logger.warning(f"Sample Line {line_num}: {failed_line[:100]}...")  # Truncate long lines
         if len(failed_sample_lines) > 10:
-            print(f"  ... and {len(failed_sample_lines) - 10} more failed sample lines")
+            logger.warning(f"... and {len(failed_sample_lines) - 10} more failed sample lines")
     
     # Generate logFormatFile path (same directory as input)
     input_path = Path(inputFile)
@@ -160,7 +172,7 @@ def _sample_log_lines(file_path, n=100):
                     if line:
                         lines.append(line)
     except Exception as e:
-        print(f"Error sampling file {file_path}: {e}")
+        logger.error(f"Error sampling file {file_path}: {e}")
     
     return lines
 
@@ -230,11 +242,11 @@ def _generate_alb_format(input_file=None):
     for config_path in config_paths:
         if config_path.exists():
             try:
-                config = load_config(str(config_path))
-                print(f"  Using ALB config from: {config_path}")
+                config = load_config_legacy(str(config_path))
+                logger.info(f"Using ALB config from: {config_path}")
                 break
             except Exception as e:
-                print(f"  Warning: Failed to load config from {config_path}: {e}")
+                logger.warning(f"Failed to load config from {config_path}: {e}")
                 continue
     
     # Use config.yaml if available, otherwise use default
@@ -441,7 +453,7 @@ def parse_log_file_with_format(input_file, log_format_file):
                                 raise ValueError("Not a JSON Lines file")
                             continue
                         if line_num % 10000 == 0:
-                            print(f"  Processed {line_num} lines...")
+                            logger.debug(f"Processed {line_num} lines...")
             except (gzip.BadGzipFile, OSError):
                 # Try plain text JSON Lines
                 with open(input_file, 'r', encoding='utf-8', errors='ignore') as f:
@@ -458,17 +470,17 @@ def parse_log_file_with_format(input_file, log_format_file):
                                 raise ValueError("Not a JSON Lines file")
                             continue
                         if line_num % 10000 == 0:
-                            print(f"  Processed {line_num} lines...")
+                            logger.debug(f"Processed {line_num} lines...")
             
             # If we successfully parsed JSON Lines, return it
             if log_data:
                 df = pd.DataFrame(log_data)
-                print(f"Total parsed entries (JSON Lines): {len(df)}")
+                logger.info(f"Total parsed entries (JSON Lines): {len(df)}")
                 return df
         except (ValueError, Exception) as e:
             # If JSON Lines parsing fails, fall through to original log parsing
             if is_filtered_file:
-                print(f"Warning: Failed to parse as JSON Lines, trying original log format: {e}")
+                logger.warning(f"Failed to parse as JSON Lines, trying original log format: {e}")
             pass
     
     # Load log format for original log parsing
@@ -481,7 +493,7 @@ def parse_log_file_with_format(input_file, log_format_file):
     
     # For ALB, if columns are missing, try to load from config.yaml
     if pattern_type == 'ALB' and 'columns' not in format_info:
-        print(f"  Warning: columns not found in logFormatFile, trying to load from config.yaml")
+        logger.warning("columns not found in logFormatFile, trying to load from config.yaml")
         try:
             # Try to find config.yaml and load columns
             config_paths = [
@@ -494,15 +506,15 @@ def parse_log_file_with_format(input_file, log_format_file):
             for config_path in config_paths:
                 if config_path.exists():
                     try:
-                        config = load_config(str(config_path))
+                        config = load_config_legacy(str(config_path))
                         if 'columns' in config:
                             format_info['columns'] = config['columns']
-                            print(f"  Loaded columns from config.yaml: {config_path}")
+                            logger.info(f"Loaded columns from config.yaml: {config_path}")
                             break
                     except Exception as e:
                         continue
         except Exception as e:
-            print(f"  Warning: Failed to load columns from config.yaml: {e}")
+            logger.warning(f"Failed to load columns from config.yaml: {e}")
     
     # Parse file as original log format
     log_data = []
@@ -522,7 +534,7 @@ def parse_log_file_with_format(input_file, log_format_file):
                         if original_line.strip():  # Only collect non-empty lines
                             failed_lines.append((line_num, original_line))
                     if line_num % 10000 == 0:
-                        print(f"  Processed {line_num} lines...")
+                        logger.debug(f"Processed {line_num} lines...")
         except:
             # Try plain text
             with open(input_file, 'r', encoding='utf-8', errors='ignore') as f:
@@ -536,36 +548,36 @@ def parse_log_file_with_format(input_file, log_format_file):
                         if original_line.strip():  # Only collect non-empty lines
                             failed_lines.append((line_num, original_line))
                     if line_num % 10000 == 0:
-                        print(f"  Processed {line_num} lines...")
+                        logger.debug(f"Processed {line_num} lines...")
     except Exception as e:
-        print(f"Error parsing file {input_file}: {e}")
-    
+        logger.error(f"Error parsing file {input_file}: {e}")
+
     # Output failed lines (파싱에 실패한 라인은 화면에 출력함)
     if failed_lines:
-        print(f"\n⚠️  파싱에 실패한 라인 ({len(failed_lines)}건):")
+        logger.warning(f"파싱에 실패한 라인 ({len(failed_lines)}건):")
         # Show first 10 failed lines
         for line_num, failed_line in failed_lines[:10]:
-            print(f"  Line {line_num}: {failed_line[:100]}...")  # Truncate long lines
+            logger.warning(f"Line {line_num}: {failed_line[:100]}...")  # Truncate long lines
         if len(failed_lines) > 10:
-            print(f"  ... and {len(failed_lines) - 10} more failed lines")
+            logger.warning(f"... and {len(failed_lines) - 10} more failed lines")
     
     if not log_data:
-        print("No valid log entries parsed.")
+        logger.warning("No valid log entries parsed.")
         return pd.DataFrame()
     
     df = pd.DataFrame(log_data)
-    print(f"Total parsed entries: {len(df)}")
+    logger.info(f"Total parsed entries: {len(df)}")
     if failed_lines:
-        print(f"Total failed lines: {len(failed_lines)}")
-    
+        logger.info(f"Total failed lines: {len(failed_lines)}")
+
     # Debug: For ALB, show column information
     if pattern_type == 'ALB' and not df.empty:
-        print(f"  ALB DataFrame columns: {list(df.columns)[:10]}...")  # Show first 10 columns
+        logger.debug(f"ALB DataFrame columns: {list(df.columns)[:10]}...")  # Show first 10 columns
         if 'columns' in format_info:
-            print(f"  Expected columns from config.yaml: {len(format_info['columns'])} columns")
-            print(f"  Columns match: {set(df.columns) == set(format_info['columns'])}")
+            logger.debug(f"Expected columns from config.yaml: {len(format_info['columns'])} columns")
+            logger.debug(f"Columns match: {set(df.columns) == set(format_info['columns'])}")
         else:
-            print(f"  Warning: No columns in format_info - columns may not be loaded from config.yaml")
+            logger.warning("No columns in format_info - columns may not be loaded from config.yaml")
     
     return df
 
@@ -660,7 +672,7 @@ def _parse_line(line, pattern, pattern_type, format_info=None):
 # Legacy Functions (for backward compatibility)
 # ============================================================================
 
-def load_config(config_path):
+def load_config_legacy(config_path):
     """Load configuration from YAML file"""
     with open(config_path, 'r') as file:
         return yaml.safe_load(file)
@@ -698,7 +710,7 @@ def parse_log_file(input_path, log_pattern, columns):
                         if match:
                             log_data.append(dict(zip(columns, match.groups())))
                         if line_num % 10000 == 0:
-                            print(f"  Processed {line_num} lines from {file_path}...")
+                            logger.debug(f"Processed {line_num} lines from {file_path}...")
             except:
                 # Try plain text
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -707,16 +719,16 @@ def parse_log_file(input_path, log_pattern, columns):
                         if match:
                             log_data.append(dict(zip(columns, match.groups())))
                         if line_num % 10000 == 0:
-                            print(f"  Processed {line_num} lines from {file_path}...")
+                            logger.debug(f"Processed {line_num} lines from {file_path}...")
         except Exception as e:
-            print(f"Error parsing file {file_path}: {e}")
+            logger.error(f"Error parsing file {file_path}: {e}")
     
     if not log_data:
-        print("No valid log entries parsed.")
+        logger.warning("No valid log entries parsed.")
         return pd.DataFrame()
     
     df = pd.DataFrame(log_data)
-    print(f"Total parsed entries: {len(df)}")
+    logger.info(f"Total parsed entries: {len(df)}")
     
     return df
 

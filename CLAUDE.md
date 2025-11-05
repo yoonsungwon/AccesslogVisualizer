@@ -44,6 +44,46 @@ The codebase follows a **Model Context Protocol (MCP)** architecture, which mean
 - Tools are chainable - output files from one tool serve as input to another
 - All tools can be invoked via the MCP server (`mcp_server.py`) or directly via Python API
 
+### Project Structure
+
+```
+AccesslogAnalyzer/
+├── core/                      # Core infrastructure (NEW)
+│   ├── __init__.py
+│   ├── exceptions.py          # Custom exception classes
+│   ├── config.py             # ConfigManager for centralized config
+│   └── logging_config.py     # Logging setup and configuration
+├── data_parser.py            # Log format detection and parsing
+├── data_processor.py         # Filtering, patterns, statistics
+├── data_visualizer.py        # Interactive visualizations
+├── main.py                   # CLI interface
+├── mcp_server.py            # MCP server
+└── config.yaml              # Optional configuration file
+```
+
+### Core Infrastructure
+
+**core/exceptions.py** - Custom Exception Classes
+- `LogAnalyzerError` - Base exception for all errors
+- `FileNotFoundError` - File not found errors
+- `InvalidFormatError` - Invalid log format errors
+- `ParseError` - Log parsing errors with line context
+- `ValidationError` - Input validation errors
+- `ConfigurationError` - Configuration errors
+
+**core/config.py** - Configuration Management
+- `ConfigManager` - Singleton class for centralized config management
+- Searches for `config.yaml` in multiple standard locations
+- Caches configuration for performance
+- Supports dot notation for nested keys (e.g., `config.get('server.port')`)
+
+**core/logging_config.py** - Logging System
+- Centralized logging setup with console and file handlers
+- Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+- Detailed format with filename and line numbers for debugging
+- All `print()` statements replaced with proper logging
+- Daily rotating log files in `logs/` directory
+
 ### Core Modules
 
 **data_parser.py** - Log Format Detection and Parsing
@@ -173,6 +213,70 @@ Filter by time supports both naive and timezone-aware timestamps:
 - **WebGL rendering**: Uses `Scattergl` instead of `Scatter` for better performance
 - **Efficient filtering**: Pattern matching uses compiled regex
 - **Lazy loading**: Pattern rules cached globally to avoid re-parsing
+
+## Error Handling
+
+All modules use consistent error handling with custom exceptions:
+
+```python
+from core.exceptions import FileNotFoundError, ValidationError
+
+# Validate file existence
+if not os.path.exists(file_path):
+    raise FileNotFoundError(file_path)
+
+# Validate parameters
+if value not in allowed_values:
+    raise ValidationError('parameter_name', f"Invalid value: {value}")
+```
+
+Exceptions are properly caught and logged in `mcp_server.py`, returning structured error responses to clients.
+
+## Logging
+
+All modules use the centralized logging system:
+
+```python
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+logger.debug("Detailed debug information")
+logger.info("General information")
+logger.warning("Warning messages")
+logger.error("Error messages")
+```
+
+### Enabling File Logging
+
+```python
+from core.logging_config import enable_file_logging, set_log_level
+
+# Enable file logging (creates logs/access_log_analyzer_YYYYMMDD.log)
+enable_file_logging()
+
+# Set log level for all loggers
+set_log_level('DEBUG')
+```
+
+## Configuration Management
+
+Use `ConfigManager` for centralized configuration:
+
+```python
+from core.config import ConfigManager
+
+config_mgr = ConfigManager()
+
+# Automatically search for config.yaml in standard locations
+config = config_mgr.load_config()
+
+# Get specific value with default
+port = config_mgr.get('server.port', default=8080)
+
+# Force reload configuration
+config_mgr.reload()
+```
 
 ## Working with the Codebase
 

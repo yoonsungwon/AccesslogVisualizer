@@ -27,6 +27,13 @@ except ImportError:
     print("  pip install mcp")
     sys.exit(1)
 
+# Import core modules
+from core.exceptions import LogAnalyzerError
+from core.logging_config import get_logger
+
+# Setup logger
+logger = get_logger(__name__)
+
 # Import MCP tools
 from data_parser import recommendAccessLogFormat
 from data_processor import (
@@ -349,10 +356,23 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Sequence[TextConten
         else:
             raise ValueError(f"Unknown tool: {name}")
     
-    except Exception as e:
+    except LogAnalyzerError as e:
+        # Handle custom exceptions
         error_msg = f"Error executing {name}: {str(e)}"
+        logger.error(error_msg)
+        return [TextContent(
+            type="text",
+            text=json.dumps({
+                "error": error_msg,
+                "type": type(e).__name__
+            }, indent=2, ensure_ascii=False)
+        )]
+    except Exception as e:
+        # Handle unexpected exceptions
+        error_msg = f"Unexpected error executing {name}: {str(e)}"
         import traceback
         error_details = traceback.format_exc()
+        logger.error(f"{error_msg}\n{error_details}")
         return [TextContent(
             type="text",
             text=json.dumps({
