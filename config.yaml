@@ -1,0 +1,89 @@
+# This file is used to configure the ALB access log analyzer.
+# It defines the input path, log pattern, columns, and their data types.
+version: '1.0'
+
+# Single file path (string)
+# input_path: '361601224285_elasticloadbalancing_ap-northeast-2_app.NMP-ALB-PRD-EXT-AN2.08f6e93c36da8c98_20250514T0000Z_10.2.144.28_war42r38.log.gz'
+
+# Multiple file paths (list) - uncomment and modify as needed
+# input_path:
+#   - '361601224285_elasticloadbalancing_ap-northeast-2_app.NMP-ALB-PRD-EXT-AN2.08f6e93c36da8c98_20250514T0000Z_10.2.144.28_war42r38.log.gz'
+#   - '361601224285_elasticloadbalancing_ap-northeast-2_app.NMP-ALB-PRD-EXT-AN2.08f6e93c36da8c98_20250514T0100Z_10.2.144.28_war42r38.log.gz'
+#   - '361601224285_elasticloadbalancing_ap-northeast-2_app.NMP-ALB-PRD-EXT-AN2.08f6e93c36da8c98_20250514T0200Z_10.2.144.28_war42r38.log.gz'
+
+# Glob pattern for multiple files - uncomment and modify as needed
+input_path: '*.gz'
+
+log_pattern: ([^ ]*) ([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:-]([0-9]*) ([-.0-9]*) ([-.0-9]*) ([-.0-9]*) (|[-0-9]*) (-|[-0-9]*) ([-0-9]*) ([-0-9]*) \"([^ ]*) (.*) (- |[^ ]*)\" \"([^\"]*)\" ([A-Z0-9-_]+) ([A-Za-z0-9.-]*) ([^ ]*) \"([^\"]*)\" \"([^\"]*)\" \"([^\"]*)\" ([-.0-9]*) ([^ ]*) \"([^\"]*)\" \"([^\"]*)\" \"([^ ]*)\" \"([^\\s]+?)\" \"([^\\s]+)\" \"([^ ]*)\" \"([^ ]*)\" ?([^ ]*)?
+
+columns:
+  - "type"
+  - "time"
+  - "elb"
+  - "client_ip"
+  - "client_port"
+  - "target_ip"
+  - "target_port"
+  - "request_processing_time"
+  - "target_processing_time"
+  - "response_processing_time"
+  - "elb_status_code"
+  - "target_status_code"
+  - "received_bytes"
+  - "sent_bytes"
+  - "request_verb"
+  - "request_url"
+  - "request_proto"
+  - "user_agent"
+  - "ssl_cipher"
+  - "ssl_protocol"
+  - "target_group_arn"
+  - "trace_id"
+  - "domain_name"
+  - "chosen_cert_arn"
+  - "matched_rule_priority"
+  - "request_creation_time"
+  - "actions_executed"
+  - "redirect_url"
+  - "lambda_error_reason"
+  - "target_port_list"
+  - "target_status_code_list"
+  - "classification"
+  - "classification_reason"
+  - "conn_trace_id"
+
+column_types:
+  type: "str"
+  time: "datetime"
+  elb: "str"
+  client_ip: "str"
+  client_port: "int"
+  target_ip: "str"
+  target_port: "int"
+  request_processing_time: "float"
+  target_processing_time: "float"
+  response_processing_time: "float"
+  elb_status_code: "int"
+  target_status_code: "int"
+  received_bytes: "int"
+  sent_bytes: "int"
+  request_verb: "str"
+  request_url: "str"
+  request_proto: "str"
+  user_agent: "str"
+  ssl_cipher: "str"
+  ssl_protocol: "str"
+  target_group_arn: "str"
+  trace_id: "str"
+  domain_name: "str"
+  chosen_cert_arn: "str"
+  matched_rule_priority: "int"
+  request_creation_time: "datetime"
+  actions_executed: "str"
+  redirect_url: "str"
+  lambda_error_reason: "str"
+  target_port_list: "str"
+  target_status_code_list: "str"
+  classification: "str"
+  classification_reason: "str"
+  conn_trace_id: "str"
