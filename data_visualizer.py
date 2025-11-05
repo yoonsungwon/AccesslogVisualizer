@@ -13,13 +13,29 @@ import re
 from datetime import datetime
 from pathlib import Path
 import numpy as np
+from typing import Dict, List, Optional, Any
+
+# Import core modules
+from core.exceptions import (
+    FileNotFoundError as CustomFileNotFoundError,
+    ValidationError
+)
+from core.logging_config import get_logger
+from core.utils import FieldMapper
+
+# Setup logger
+logger = get_logger(__name__)
 
 
 # ============================================================================
 # MCP Tool: generateXlog
 # ============================================================================
 
-def generateXlog(inputFile, logFormatFile, outputFormat='html'):
+def generateXlog(
+    inputFile: str,
+    logFormatFile: str,
+    outputFormat: str = 'html'
+) -> Dict[str, Any]:
     """
     Generate XLog (response time scatter plot) visualization.
     
@@ -36,11 +52,11 @@ def generateXlog(inputFile, logFormatFile, outputFormat='html'):
     """
     # Validate inputs
     if not inputFile or not os.path.exists(inputFile):
-        raise ValueError(f"Input file not found: {inputFile}")
+        raise CustomFileNotFoundError(inputFile)
     if not logFormatFile or not os.path.exists(logFormatFile):
-        raise ValueError(f"Log format file not found: {logFormatFile}")
+        raise CustomFileNotFoundError(logFormatFile)
     if outputFormat != 'html':
-        raise ValueError("Only 'html' output format is currently supported")
+        raise ValidationError('outputFormat', "Only 'html' output format is currently supported")
     
     # Load log format
     with open(logFormatFile, 'r', encoding='utf-8') as f:
@@ -259,7 +275,14 @@ def generateXlog(inputFile, logFormatFile, outputFormat='html'):
 # MCP Tool: generateRequestPerURI
 # ============================================================================
 
-def generateRequestPerURI(inputFile, logFormatFile, outputFormat='html', topN=20, interval='10s', patternsFile=None):
+def generateRequestPerURI(
+    inputFile: str,
+    logFormatFile: str,
+    outputFormat: str = 'html',
+    topN: int = 20,
+    interval: str = '10s',
+    patternsFile: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Generate Request Count per URI time-series visualization.
     
@@ -1215,7 +1238,11 @@ def generateRequestPerURI(inputFile, logFormatFile, outputFormat='html', topN=20
 # Additional Visualization Functions
 # ============================================================================
 
-def generateMultiMetricDashboard(inputFile, logFormatFile, outputFormat='html'):
+def generateMultiMetricDashboard(
+    inputFile: str,
+    logFormatFile: str,
+    outputFormat: str = 'html'
+) -> Dict[str, Any]:
     """
     Generate a comprehensive dashboard with multiple metrics.
     

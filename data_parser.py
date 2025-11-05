@@ -15,6 +15,7 @@ import glob
 from datetime import datetime
 from collections import Counter
 from pathlib import Path
+from typing import Dict, List, Tuple, Optional, Any
 
 # Import core modules
 from core.exceptions import (
@@ -33,7 +34,7 @@ logger = get_logger(__name__)
 # MCP Tool: recommendAccessLogFormat
 # ============================================================================
 
-def recommendAccessLogFormat(inputFile):
+def recommendAccessLogFormat(inputFile: str) -> Dict[str, Any]:
     """
     Automatically detect and recommend access log format.
     Returns a logFormatFile (JSON) with pattern, field mappings, and metadata.
@@ -149,7 +150,7 @@ def recommendAccessLogFormat(inputFile):
     return result
 
 
-def _sample_log_lines(file_path, n=100):
+def _sample_log_lines(file_path: str, n: int = 100) -> List[str]:
     """Sample n lines from log file (supports gzip)"""
     lines = []
     try:
@@ -177,7 +178,7 @@ def _sample_log_lines(file_path, n=100):
     return lines
 
 
-def _detect_log_type(sample_lines):
+def _detect_log_type(sample_lines: List[str]) -> Tuple[str, float]:
     """Detect log type from sample lines"""
     scores = {'ALB': 0, 'JSON': 0, 'APACHE': 0, 'GROK': 0}
     

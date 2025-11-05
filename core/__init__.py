@@ -5,6 +5,7 @@ This module provides common utilities and infrastructure:
 - Custom exceptions
 - Configuration management
 - Logging setup
+- Utility classes (FieldMapper, ParamParser)
 """
 
 from .exceptions import (
@@ -12,10 +13,12 @@ from .exceptions import (
     FileNotFoundError,
     InvalidFormatError,
     ParseError,
-    ValidationError
+    ValidationError,
+    ConfigurationError
 )
 from .config import ConfigManager
 from .logging_config import setup_logger, get_logger
+from .utils import FieldMapper, ParamParser
 
 __all__ = [
     'LogAnalyzerError',
@@ -23,7 +26,10 @@ __all__ = [
     'InvalidFormatError',
     'ParseError',
     'ValidationError',
+    'ConfigurationError',
     'ConfigManager',
     'setup_logger',
     'get_logger',
+    'FieldMapper',
+    'ParamParser',
 ]

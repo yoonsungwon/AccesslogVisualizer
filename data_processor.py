@@ -14,6 +14,7 @@ from pathlib import Path
 from collections import defaultdict, Counter
 from urllib.parse import urlparse, parse_qs
 import ipaddress
+from typing import Dict, List, Tuple, Optional, Any
 
 # Import core modules
 from core.exceptions import (
@@ -21,6 +22,7 @@ from core.exceptions import (
     ValidationError
 )
 from core.logging_config import get_logger
+from core.utils import ParamParser
 
 # Setup logger
 logger = get_logger(__name__)
@@ -30,7 +32,12 @@ logger = get_logger(__name__)
 # MCP Tool: filterByCondition
 # ============================================================================
 
-def filterByCondition(inputFile, logFormatFile, condition, params):
+def filterByCondition(
+    inputFile: str,
+    logFormatFile: str,
+    condition: str,
+    params: str
+) -> Dict[str, Any]:
     """
     Filter access log by various conditions.
     
@@ -107,18 +114,14 @@ def filterByCondition(inputFile, logFormatFile, condition, params):
     }
 
 
-def _parse_params(params):
-    """Parse parameter string into dict"""
-    param_dict = {}
-    if not params:
-        return param_dict
-    
-    for pair in params.split(';'):
-        if '=' in pair:
-            key, value = pair.split('=', 1)
-            param_dict[key.strip()] = value.strip()
-    
-    return param_dict
+def _parse_params(params: str) -> Dict[str, str]:
+    """
+    Parse parameter string into dict.
+
+    DEPRECATED: Use core.utils.ParamParser.parse() instead.
+    This function is kept for backward compatibility.
+    """
+    return ParamParser.parse(params)
 
 
 def _filter_by_time(log_df, params, format_info):
@@ -485,7 +488,12 @@ def _format_size(size_bytes):
 # MCP Tool: extractUriPatterns
 # ============================================================================
 
-def extractUriPatterns(inputFile, logFormatFile, extractionType, params=''):
+def extractUriPatterns(
+    inputFile: str,
+    logFormatFile: str,
+    extractionType: str,
+    params: str = ''
+) -> Dict[str, Any]:
     """
     Extract URLs or URI patterns from access log.
     
@@ -647,70 +655,108 @@ def _extract_uri_patterns(urls, max_patterns, min_count, max_count):
 
 
 # Global pattern rules cache (loaded from pattern file)
-_pattern_rules_cache = None
-_pattern_rules_file = None
+class PatternRulesManager:
+    """
+    Manager for pattern rules with caching.
 
-def _load_pattern_rules(patterns_file=None):
-    """Load pattern rules from file"""
-    global _pattern_rules_cache, _pattern_rules_file
-    
-    # If no file specified or same file, return cached rules
-    if patterns_file and patterns_file != _pattern_rules_file:
-        _pattern_rules_cache = None
-        _pattern_rules_file = None
-    
-    if _pattern_rules_cache is not None:
-        return _pattern_rules_cache
-    
-    if not patterns_file or not os.path.exists(patterns_file):
-        return None
-    
-    try:
-        with open(patterns_file, 'r', encoding='utf-8') as f:
-            pattern_data = json.load(f)
-        
-        # Check for patternRules (explicit regex rules)
-        if 'patternRules' in pattern_data and isinstance(pattern_data['patternRules'], list):
-            rules = []
-            for rule in pattern_data['patternRules']:
-                if isinstance(rule, dict) and 'pattern' in rule and 'replacement' in rule:
-                    rules.append({
-                        'pattern': re.compile(rule['pattern']),
-                        'replacement': rule['replacement']
-                    })
-            if rules:
-                _pattern_rules_cache = rules
-                _pattern_rules_file = patterns_file
-                return rules
-        
-        # Check for patterns list (match patterns)
-        if 'patterns' in pattern_data:
-            patterns = pattern_data['patterns']
-            if isinstance(patterns, list) and patterns:
-                # Convert patterns to regex rules
+    This class replaces global variables for pattern rules caching,
+    providing better encapsulation and testability.
+    """
+
+    def __init__(self):
+        self._cache: Dict[str, List[Dict[str, Any]]] = {}
+
+    def load_rules(self, patterns_file: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
+        """
+        Load pattern rules from file with caching.
+
+        Args:
+            patterns_file: Path to pattern rules file
+
+        Returns:
+            List of compiled pattern rules or None if not found
+        """
+        if not patterns_file or not os.path.exists(patterns_file):
+            return None
+
+        # Return cached rules if available
+        if patterns_file in self._cache:
+            logger.debug(f"Using cached pattern rules from {patterns_file}")
+            return self._cache[patterns_file]
+
+        try:
+            with open(patterns_file, 'r', encoding='utf-8') as f:
+                pattern_data = json.load(f)
+
+            # Check for patternRules (explicit regex rules)
+            if 'patternRules' in pattern_data and isinstance(pattern_data['patternRules'], list):
                 rules = []
-                for pattern in patterns:
-                    if isinstance(pattern, str):
-                        # Convert pattern with * wildcards to regex
-                        # First, replace * with a placeholder
-                        temp_pattern = pattern.replace('*', '__WILDCARD__')
-                        # Escape special regex characters
-                        escaped_pattern = re.escape(temp_pattern)
-                        # Replace placeholder with .* (regex wildcard)
-                        regex_pattern = escaped_pattern.replace('__WILDCARD__', '.*')
+                for rule in pattern_data['patternRules']:
+                    if isinstance(rule, dict) and 'pattern' in rule and 'replacement' in rule:
                         rules.append({
-                            'pattern': re.compile(f'^{regex_pattern}$'),
-                            'replacement': pattern
+                            'pattern': re.compile(rule['pattern']),
+                            'replacement': rule['replacement']
                         })
                 if rules:
-                    _pattern_rules_cache = rules
-                    _pattern_rules_file = patterns_file
+                    self._cache[patterns_file] = rules
+                    logger.info(f"Loaded {len(rules)} pattern rules from {patterns_file}")
                     return rules
-    
-    except Exception as e:
-        print(f"  Warning: Could not load pattern rules from {patterns_file}: {e}")
-    
-    return None
+
+            # Check for patterns list (match patterns)
+            if 'patterns' in pattern_data:
+                patterns = pattern_data['patterns']
+                if isinstance(patterns, list) and patterns:
+                    # Convert patterns to regex rules
+                    rules = []
+                    for pattern in patterns:
+                        if isinstance(pattern, str):
+                            # Convert pattern with * wildcards to regex
+                            temp_pattern = pattern.replace('*', '__WILDCARD__')
+                            escaped_pattern = re.escape(temp_pattern)
+                            regex_pattern = escaped_pattern.replace('__WILDCARD__', '.*')
+                            rules.append({
+                                'pattern': re.compile(f'^{regex_pattern}$'),
+                                'replacement': pattern
+                            })
+                    if rules:
+                        self._cache[patterns_file] = rules
+                        logger.info(f"Loaded {len(rules)} patterns from {patterns_file}")
+                        return rules
+
+        except Exception as e:
+            logger.warning(f"Could not load pattern rules from {patterns_file}: {e}")
+
+        return None
+
+    def clear_cache(self, patterns_file: Optional[str] = None):
+        """
+        Clear cached pattern rules.
+
+        Args:
+            patterns_file: Specific file to clear, or None to clear all
+        """
+        if patterns_file:
+            self._cache.pop(patterns_file, None)
+        else:
+            self._cache.clear()
+
+    def get_cached_files(self) -> List[str]:
+        """Get list of cached pattern files"""
+        return list(self._cache.keys())
+
+
+# Global instance
+_pattern_manager = PatternRulesManager()
+
+
+def _load_pattern_rules(patterns_file: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
+    """
+    Load pattern rules from file.
+
+    DEPRECATED: Use PatternRulesManager directly for better control.
+    This function is kept for backward compatibility.
+    """
+    return _pattern_manager.load_rules(patterns_file)
 
 
 def _generalize_url(url, patterns_file=None):
@@ -791,7 +837,7 @@ def _is_id_like(segment):
 # MCP Tool: filterUriPatterns
 # ============================================================================
 
-def filterUriPatterns(urisFile, params=''):
+def filterUriPatterns(urisFile: str, params: str = '') -> Dict[str, Any]:
     """
     Filter URI patterns file by include/exclude patterns.
     
@@ -904,7 +950,11 @@ def filterUriPatterns(urisFile, params=''):
 # MCP Tool: calculateStats
 # ============================================================================
 
-def calculateStats(inputFile, logFormatFile, params=''):
+def calculateStats(
+    inputFile: str,
+    logFormatFile: str,
+    params: str = ''
+) -> Dict[str, Any]:
     """
     Calculate statistics from access log.
     
