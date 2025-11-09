@@ -119,6 +119,8 @@ AccesslogAnalyzer/
   - **Parallel URL statistics**: Process multiple URL groups concurrently (>= 100 URLs)
   - **Parallel time-series stats**: Calculate time interval statistics in parallel (>= 100 intervals)
   - **Parallel IP statistics**: Process IP groups concurrently (>= 100 IPs)
+  - **timeInterval parameter**: Supports flexible time interval formats (e.g., '1m', '10s', '1h')
+  - Automatically normalizes common abbreviations: '1m' → '1min', '30sec' → '30s'
   - Performance: ~2-3x faster for large datasets with many unique URLs/IPs
 - `PatternRulesManager` - Thread-safe pattern caching class (replaces global variables)
 - All filtered data is saved as JSON Lines format for flexibility
@@ -126,7 +128,11 @@ AccesslogAnalyzer/
 **data_visualizer.py** - Interactive Visualizations
 - `generateXlog(inputFile, logFormatFile, outputFormat)`: Creates response time scatter plot with WebGL rendering
 - `generateRequestPerURI(inputFile, logFormatFile, outputFormat, topN, interval, patternsFile)`: Generates time-series chart with interactive checkbox filtering and hover-text clipboard copy
+  - **interval parameter**: Supports flexible time interval formats (e.g., '1m', '10s', '1h')
+  - Automatically normalizes common abbreviations: '1m' → '1min', '30sec' → '30s'
+  - Supported units: s (seconds), min (minutes), h (hours), d (days)
 - `generateMultiMetricDashboard(inputFile, logFormatFile, outputFormat)`: Creates comprehensive 3-panel dashboard
+- `_normalize_interval(interval)`: Helper function to normalize time interval strings to pandas-compatible format
 - All visualizations use Plotly with CDN for interactivity
 
 **main.py** - Interactive CLI

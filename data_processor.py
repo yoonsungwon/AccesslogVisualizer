@@ -1263,16 +1263,9 @@ def _calculate_time_stats(log_df, time_field, status_field, rt_field, interval, 
     if time_field not in log_df.columns:
         return []
 
-    # Parse interval
-    freq_map = {
-        '1h': '1H',
-        '30m': '30T',
-        '10m': '10T',
-        '5m': '5T',
-        '1m': '1T'
-    }
-
-    freq = freq_map.get(interval, '10T')
+    # Normalize interval to pandas-compatible format
+    from data_visualizer import _normalize_interval
+    freq = _normalize_interval(interval)
 
     # Group by time interval
     log_df['time_bucket'] = log_df[time_field].dt.floor(freq)

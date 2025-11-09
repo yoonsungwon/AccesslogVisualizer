@@ -28,6 +28,78 @@ logger = get_logger(__name__)
 
 
 # ============================================================================
+# Helper Functions
+# ============================================================================
+
+def _normalize_interval(interval: str) -> str:
+    """
+    Normalize time interval string to pandas-compatible format.
+
+    Converts common abbreviations to pandas-compatible frequency strings:
+    - '1m', '5m', '10m' -> '1min', '5min', '10min' (minutes)
+    - '1h', '2h' -> '1h', '2h' (hours)
+    - '1s', '10s' -> '1s', '10s' (seconds)
+    - '1d' -> '1d' (days)
+
+    Args:
+        interval (str): Time interval string (e.g., '1m', '10s', '1h')
+
+    Returns:
+        str: Normalized pandas-compatible interval string
+
+    Raises:
+        ValidationError: If interval format is invalid
+    """
+    if not interval or not isinstance(interval, str):
+        raise ValidationError('interval', f"Invalid interval: {interval}")
+
+    # Common interval patterns: number + unit
+    import re
+    match = re.match(r'^(\d+)([a-zA-Z]+)$', interval.strip())
+    if not match:
+        raise ValidationError('interval',
+            f"Invalid interval format: '{interval}'. Expected format: number + unit (e.g., '1min', '10s', '1h')")
+
+    number, unit = match.groups()
+
+    # Normalize unit abbreviations
+    # 'm' is ambiguous (month vs minute), default to minute for access logs
+    unit_map = {
+        'm': 'min',      # Default 'm' to minutes for access logs
+        'min': 'min',
+        'mins': 'min',
+        'minute': 'min',
+        'minutes': 'min',
+        's': 's',
+        'sec': 's',
+        'secs': 's',
+        'second': 's',
+        'seconds': 's',
+        'h': 'h',
+        'hr': 'h',
+        'hrs': 'h',
+        'hour': 'h',
+        'hours': 'h',
+        'd': 'd',
+        'day': 'd',
+        'days': 'd',
+    }
+
+    normalized_unit = unit_map.get(unit.lower())
+    if not normalized_unit:
+        raise ValidationError('interval',
+            f"Unknown time unit: '{unit}'. Supported units: s, min, h, d")
+
+    normalized_interval = f"{number}{normalized_unit}"
+
+    # Log if conversion occurred
+    if normalized_interval != interval:
+        logger.info(f"Normalized interval '{interval}' to '{normalized_interval}'")
+
+    return normalized_interval
+
+
+# ============================================================================
 # MCP Tool: generateXlog
 # ============================================================================
 
@@ -306,7 +378,10 @@ def generateRequestPerURI(
     """
     if outputFormat != 'html':
         raise ValueError("Only 'html' output format is currently supported")
-    
+
+    # Normalize interval parameter to pandas-compatible format
+    interval = _normalize_interval(interval)
+
     # Load log format
     with open(logFormatFile, 'r', encoding='utf-8') as f:
         format_info = json.load(f)
@@ -491,9 +566,14 @@ def generateRequestPerURI(
         '#8ca252', '#b5cf6b', '#cedb9c', '#8c6d31', '#bd9e39',
         '#e7ba52', '#e7cb94', '#843c39', '#ad494a', '#d6616b'
     ]
-    
+
+    # Get actual patterns from pivot (sorted by total count, excluding "Others")
+    # This ensures we use the exact pattern strings that exist in the data
+    pattern_counts = pivot.sum().sort_values(ascending=False)
+    actual_patterns = [p for p in pattern_counts.index if p != 'Others'][:topN]
+
     # Add top patterns first
-    for i, pattern in enumerate(top_patterns):
+    for i, pattern in enumerate(actual_patterns):
         if pattern in pivot.columns:
             # Use Scattergl for WebGL rendering
             # Explicitly set color to match Plotly's default palette
@@ -583,44 +663,34 @@ def generateRequestPerURI(
     # Create checkbox HTML for each pattern
     # Position it in the right margin area, not overlapping with the graph
     # Use fixed position to ensure it's always visible
-    checkbox_html = '<div id="filterCheckboxPanel" style="position: fixed; right: 20px; top: 80px; width: 220px; max-height: 500px; overflow-y: auto; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">'
+    # Use Plotly's default text color (#444) for consistency
+    checkbox_html = '<div id="filterCheckboxPanel" style="position: fixed; right: 20px; top: 80px; width: 220px; max-height: 500px; overflow-y: auto; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.1); color: #444; font-family: \'Open Sans\', verdana, arial, sans-serif;">'
     checkbox_html += '<div style="font-weight: bold; margin-bottom: 10px; font-size: 14px;">Filter URI Patterns:</div>'
     checkbox_html += '<div style="margin-bottom: 8px; position: relative;"><input type="text" id="patternFilterInput" placeholder="Regex filter..." style="width: 100%; padding: 4px 24px 4px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; box-sizing: border-box;"><span id="clearFilterBtn" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 14px; color: #999; display: none;" title="Clear filter">×</span></div>'
-    checkbox_html += f'<div style="margin-bottom: 5px;"><label><input type="checkbox" id="checkAll" checked> <strong>All</strong></label></div>'
-    checkbox_html += f'<div style="margin-bottom: 5px;"><label><input type="checkbox" id="checkNone"> <strong>None</strong></label></div>'
+    checkbox_html += f'<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkAll" checked> <strong>All</strong></label></div>'
+    checkbox_html += f'<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkNone"> <strong>None</strong></label></div>'
     checkbox_html += '<hr style="margin: 8px 0;">'
     
-    # Plotly's default color palette (same as used in traces)
-    plotly_colors_js = [
-        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
-        '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
-        '#c49c94', '#f7b6d3', '#c7c7c7', '#dbdb8d', '#9edae5',
-        '#393b79', '#5254a3', '#6b6ecf', '#9c9ede', '#637939',
-        '#8ca252', '#b5cf6b', '#cedb9c', '#8c6d31', '#bd9e39',
-        '#e7ba52', '#e7cb94', '#843c39', '#ad494a', '#d6616b'
-    ]
-    
-    # Get all patterns including Others from pivot (actual data)
-    # Use pivot.columns to get all patterns that actually exist in the data
-    all_patterns = [p for p in top_patterns if p in pivot.columns]
-    if 'Others' in pivot.columns and 'Others' not in all_patterns:
-        all_patterns.append('Others')
-    
-    for i, pattern in enumerate(all_patterns):
+    # Create checkbox items using the same actual_patterns list as traces
+    # This ensures exact color match between chart lines and checkbox labels
+    for i, pattern in enumerate(actual_patterns):
         pattern_id = f'pattern_{i}'
         pattern_display = pattern[:60] + ('...' if len(pattern) > 60 else '')
-        if pattern == 'Others':
-            trace_color = '#808080'  # Gray for Others
-        else:
-            trace_color = plotly_colors_js[i % len(plotly_colors_js)]
+        # Use the same color index as the corresponding trace
+        trace_color = plotly_default_colors[i % len(plotly_default_colors)]
         checkbox_html += f'<div class="pattern-item" style="margin-bottom: 3px; font-size: 11px;" data-pattern="{pattern}"><label class="pattern-label" data-index="{i}"><input type="checkbox" class="pattern-checkbox" id="{pattern_id}" data-index="{i}" checked> <span class="pattern-text" style="color: {trace_color}; font-weight: bold;">{pattern_display}</span></label></div>'
+
+    # Add "Others" checkbox if it exists (same logic as "Others" trace)
+    if 'Others' in pivot.columns:
+        pattern_id = f'pattern_{len(actual_patterns)}'
+        others_color = '#808080'  # Same gray color as Others trace
+        checkbox_html += f'<div class="pattern-item" style="margin-bottom: 3px; font-size: 11px;" data-pattern="Others"><label class="pattern-label" data-index="{len(actual_patterns)}"><input type="checkbox" class="pattern-checkbox" id="{pattern_id}" data-index="{len(actual_patterns)}" checked> <span class="pattern-text" style="color: {others_color}; font-weight: bold;">Others</span></label></div>'
     
     checkbox_html += '</div>'
     
     # Add hover text display area and clipboard copy feature
     hover_text_html = '''
-    <div id="hoverTextDisplay" style="position: fixed; bottom: 20px; right: 20px; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; max-width: 300px; max-height: 150px; overflow-y: auto; display: none; z-index: 2000; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-size: 12px;">
+    <div id="hoverTextDisplay" style="position: fixed; bottom: 20px; right: 20px; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; max-width: 300px; max-height: 150px; overflow-y: auto; display: none; z-index: 2000; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-size: 12px; color: #444; font-family: 'Open Sans', verdana, arial, sans-serif;">
         <div style="font-weight: bold; margin-bottom: 5px;">Hover Info:</div>
         <div id="hoverTextContent" style="white-space: pre-wrap; word-break: break-word;"></div>
         <div style="margin-top: 5px; font-size: 10px; color: #666;">Click or press Ctrl+C to copy</div>
@@ -1231,6 +1301,1342 @@ def generateRequestPerURI(
         'interval': interval,
         'patternsDisplayed': len(top_patterns),
         'patternsFile': patternsFile
+    }
+
+
+# ============================================================================
+# MCP Tool: generateReceivedBytesPerURI
+# ============================================================================
+
+def generateReceivedBytesPerURI(
+    inputFile: str,
+    logFormatFile: str,
+    outputFormat: str = 'html',
+    topN: int = 10,
+    interval: str = '10s',
+    patternsFile: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generate Received Bytes per URI time-series visualization with Sum and Average Top N.
+
+    Args:
+        inputFile (str): Input log file path
+        logFormatFile (str): Log format JSON file path
+        outputFormat (str): Output format ('html' only supported)
+        topN (int): Number of top URI patterns to display (default: 10)
+        interval (str): Time interval for aggregation (default: '10s').
+                       Examples: '1s', '10s', '1min', '5min', '1h'
+        patternsFile (str, optional): Path to JSON file containing URL patterns.
+                                    If provided, uses these patterns for visualization.
+                                    If not provided, extracts top N patterns and saves to file.
+
+    Returns:
+        dict: {
+            'filePath': str (receivedbytes_*.html),
+            'totalTransactions': int,
+            'patternsFile': str (path to saved patterns file),
+            'topNSum': list (top N URIs by sum),
+            'topNAvg': list (top N URIs by average)
+        }
+    """
+    if outputFormat != 'html':
+        raise ValidationError('outputFormat', "Only 'html' output format is currently supported")
+
+    # Normalize interval parameter to pandas-compatible format
+    interval = _normalize_interval(interval)
+
+    # Load log format
+    with open(logFormatFile, 'r', encoding='utf-8') as f:
+        format_info = json.load(f)
+
+    # Parse log file
+    from data_parser import parse_log_file_with_format
+    log_df = parse_log_file_with_format(inputFile, logFormatFile)
+
+    if log_df.empty:
+        raise ValueError("No data to visualize")
+
+    # Get field mappings using FieldMapper
+    time_field = FieldMapper.find_field(log_df, 'time', format_info)
+    url_field = FieldMapper.find_field(log_df, 'url', format_info)
+
+    # For bytes field, provide possible alternative names
+    possible_bytes_fields = ['received_bytes', 'bytes_received', 'sent_bytes', 'bytes_sent',
+                             'body_bytes_sent', 'response_size', 'bytes', 'size']
+    bytes_field = FieldMapper.find_field(log_df, 'receivedBytes', format_info,
+                                         possible_names=possible_bytes_fields)
+
+    # Validate required fields
+    if not time_field or time_field not in log_df.columns:
+        raise ValueError(f"Time field not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
+    if not url_field or url_field not in log_df.columns:
+        raise ValueError(f"URL field not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
+    if not bytes_field or bytes_field not in log_df.columns:
+        raise ValueError(f"Received bytes field not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
+
+    # Convert types
+    log_df[time_field] = pd.to_datetime(log_df[time_field], errors='coerce')
+    log_df[bytes_field] = pd.to_numeric(log_df[bytes_field], errors='coerce')
+    log_df = log_df.dropna(subset=[time_field, bytes_field])
+
+    # Determine input path for output file location
+    input_path = Path(inputFile)
+
+    # Load patterns from file if provided first (to use pattern rules for generalization)
+    patterns_file_for_generalize = None
+    top_patterns = None
+
+    if patternsFile and os.path.exists(patternsFile):
+        # Load patterns from file
+        try:
+            with open(patternsFile, 'r', encoding='utf-8') as f:
+                patterns_data = json.load(f)
+
+            # Extract pattern rules from file
+            if isinstance(patterns_data, dict):
+                if 'patternRules' in patterns_data and isinstance(patterns_data['patternRules'], list):
+                    patterns_file_for_generalize = patternsFile
+                    # Extract replacement values from patternRules as top_patterns
+                    top_patterns = [rule.get('replacement', '') for rule in patterns_data['patternRules'] if isinstance(rule, dict) and 'replacement' in rule]
+                    top_patterns = [p for p in top_patterns if p]  # Remove empty strings
+                    logger.info(f"Using pattern rules from {patternsFile} for URL generalization")
+                    logger.info(f"Loaded {len(top_patterns)} patterns from patternRules")
+                else:
+                    # Fallback for old format (backward compatibility)
+                    if 'patterns' in patterns_data:
+                        top_patterns = patterns_data['patterns']
+                        patterns_file_for_generalize = patternsFile
+                        logger.info(f"Using patterns from {patternsFile} (will be converted to rules)")
+                    elif 'urls' in patterns_data:
+                        top_patterns = patterns_data['urls']
+                        patterns_file_for_generalize = patternsFile
+                        logger.info(f"Using URLs from {patternsFile} (will be converted to rules)")
+                    else:
+                        raise ValueError(f"No patternRules, patterns, or urls found in {patternsFile}")
+            else:
+                raise ValueError(f"Unexpected patterns file format: {type(patterns_data)}")
+
+            # Ensure patterns are strings and unique
+            top_patterns = list(set([str(p) for p in top_patterns if p]))
+
+        except Exception as e:
+            logger.warning(f"Could not load patterns file {patternsFile}: {e}")
+            logger.info(f"Falling back to extracting top {topN} patterns")
+            patternsFile = None
+            top_patterns = None
+
+    # Generalize URLs (remove IDs) using pattern file if available
+    from data_processor import _generalize_url
+    log_df['url_pattern'] = log_df[url_field].apply(
+        lambda x: _generalize_url(x, patterns_file_for_generalize) if pd.notna(x) else 'Unknown'
+    )
+
+    # Group by time interval and URL pattern
+    log_df['time_bucket'] = log_df[time_field].dt.floor(interval)
+
+    # Calculate sum and average for each time bucket and URL pattern
+    bytes_stats = log_df.groupby(['time_bucket', 'url_pattern'])[bytes_field].agg(['sum', 'mean']).reset_index()
+    bytes_stats.columns = ['time_bucket', 'url_pattern', 'sum_bytes', 'avg_bytes']
+
+    # If patterns were not loaded from file, extract top N by sum
+    if not patternsFile or not os.path.exists(patternsFile):
+        # Get top N URL patterns by total sum of bytes
+        pattern_total_sum = bytes_stats.groupby('url_pattern')['sum_bytes'].sum().sort_values(ascending=False)
+        top_patterns = pattern_total_sum.head(topN).index.tolist()
+
+        # Generate pattern rules from patterns
+        pattern_rules = []
+        for pattern in top_patterns:
+            # Convert pattern with * wildcards to regex
+            temp_pattern = pattern.replace('*', '__WILDCARD__')
+            escaped_pattern = re.escape(temp_pattern)
+            regex_pattern = escaped_pattern.replace('__WILDCARD__', '.*')
+
+            pattern_rules.append({
+                'pattern': f'^{regex_pattern}$',
+                'replacement': pattern
+            })
+
+        # Save patterns to file with pattern rules only
+        timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
+        patterns_file_path = input_path.parent / f"patterns_{timestamp}.json"
+
+        patterns_data = {
+            'patternRules': pattern_rules,
+            'totalPatterns': len(top_patterns),
+            'extractedAt': datetime.now().isoformat(),
+            'sourceFile': str(inputFile),
+            'topN': topN,
+            'criteria': 'sum_received_bytes'
+        }
+
+        with open(patterns_file_path, 'w', encoding='utf-8') as f:
+            json.dump(patterns_data, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Extracted top {len(top_patterns)} patterns and saved to {patterns_file_path}")
+        patternsFile = str(patterns_file_path)
+
+    # Filter data to only include top patterns
+    bytes_stats_filtered = bytes_stats[bytes_stats['url_pattern'].isin(top_patterns)].copy()
+
+    # Get top N by sum
+    pattern_sum = bytes_stats_filtered.groupby('url_pattern')['sum_bytes'].sum().sort_values(ascending=False)
+    top_patterns_sum = pattern_sum.head(topN).index.tolist()
+
+    # Get top N by average
+    pattern_avg = bytes_stats_filtered.groupby('url_pattern')['avg_bytes'].mean().sort_values(ascending=False)
+    top_patterns_avg = pattern_avg.head(topN).index.tolist()
+
+    # Create pivot tables for sum and average
+    pivot_sum = bytes_stats_filtered[bytes_stats_filtered['url_pattern'].isin(top_patterns_sum)].pivot_table(
+        index='time_bucket',
+        columns='url_pattern',
+        values='sum_bytes',
+        fill_value=0
+    )
+
+    pivot_avg = bytes_stats_filtered[bytes_stats_filtered['url_pattern'].isin(top_patterns_avg)].pivot_table(
+        index='time_bucket',
+        columns='url_pattern',
+        values='avg_bytes',
+        fill_value=0
+    )
+
+    # Sort columns by total sum/avg (descending)
+    if len(pivot_sum.columns) > 0:
+        pivot_sum = pivot_sum[pattern_sum.head(topN).index]
+    if len(pivot_avg.columns) > 0:
+        pivot_avg = pivot_avg[pattern_avg.head(topN).index]
+
+    # Create subplots with two charts
+    fig = make_subplots(
+        rows=2, cols=1,
+        subplot_titles=(
+            f'Received Bytes Sum per URI Pattern (Top {topN}, Interval: {interval})',
+            f'Received Bytes Average per URI Pattern (Top {topN}, Interval: {interval})'
+        ),
+        vertical_spacing=0.15
+    )
+
+    # Plotly's default color palette
+    plotly_default_colors = [
+        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+        '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+        '#c49c94', '#f7b6d3', '#c7c7c7', '#dbdb8d', '#9edae5'
+    ]
+
+    # Add Sum Top N traces
+    for i, pattern in enumerate(pivot_sum.columns):
+        trace_color = plotly_default_colors[i % len(plotly_default_colors)]
+        fig.add_trace(
+            go.Scattergl(
+                x=pivot_sum.index,
+                y=pivot_sum[pattern],
+                mode='lines+markers',
+                name=pattern,
+                line=dict(width=2, color=trace_color),
+                marker=dict(size=4, color=trace_color),
+                legendgroup='sum',
+                showlegend=True,
+                hovertemplate=f'Sum: %{{y:,.0f}} bytes<br>Pattern: {pattern}<extra></extra>'
+            ),
+            row=1, col=1
+        )
+
+    # Add Average Top N traces
+    for i, pattern in enumerate(pivot_avg.columns):
+        trace_color = plotly_default_colors[i % len(plotly_default_colors)]
+        fig.add_trace(
+            go.Scattergl(
+                x=pivot_avg.index,
+                y=pivot_avg[pattern],
+                mode='lines+markers',
+                name=pattern,
+                line=dict(width=2, color=trace_color),
+                marker=dict(size=4, color=trace_color),
+                legendgroup='avg',
+                showlegend=True,
+                hovertemplate=f'Avg: %{{y:,.0f}} bytes<br>Pattern: {pattern}<extra></extra>'
+            ),
+            row=2, col=1
+        )
+
+    # Update layout - hide legend since we use checkboxes
+    fig.update_layout(
+        height=900,
+        showlegend=False,  # Hide legend, use checkboxes instead
+        title_text=f"Received Bytes per URI Pattern Analysis",
+        hovermode='x unified',
+        margin=dict(r=280)  # Add right margin for checkbox panels
+    )
+
+    # Update axes
+    fig.update_xaxes(title_text='Time', row=2, col=1)
+    fig.update_yaxes(title_text='Sum Bytes', row=1, col=1)
+    fig.update_yaxes(title_text='Average Bytes', row=2, col=1)
+
+    # Add range slider for time navigation on bottom chart
+    fig.update_xaxes(
+        rangeslider_visible=True,
+        rangeselector=dict(
+            buttons=list([
+                dict(count=1, label="1h", step="hour", stepmode="backward"),
+                dict(count=6, label="6h", step="hour", stepmode="backward"),
+                dict(count=12, label="12h", step="hour", stepmode="backward"),
+                dict(count=1, label="1d", step="day", stepmode="backward"),
+                dict(step="all")
+            ])
+        ),
+        row=2, col=1
+    )
+
+    # Generate output file
+    timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
+    output_file = input_path.parent / f"receivedbytes_{timestamp}.html"
+
+    # Save as HTML with specific div_id
+    plotly_div_id = f'plotly-div-{timestamp}'
+    fig.write_html(str(output_file), include_plotlyjs='cdn', div_id=plotly_div_id)
+
+    # Add checkbox controls and JavaScript for filtering
+    # Read the generated HTML
+    with open(output_file, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+
+    # Extract the actual div ID from HTML
+    div_id_match = re.search(r'<div id="([^"]+)"[^>]*class="[^"]*plotly[^"]*"', html_content)
+    actual_div_id = div_id_match.group(1) if div_id_match else plotly_div_id
+
+    # Create checkbox HTML for Sum chart (top)
+    checkbox_sum_html = '<div id="filterCheckboxPanelSum" style="position: fixed; right: 20px; top: 80px; width: 250px; max-height: 350px; overflow-y: auto; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.1); color: #444; font-family: \'Open Sans\', verdana, arial, sans-serif;">'
+    checkbox_sum_html += '<div style="font-weight: bold; margin-bottom: 10px; font-size: 14px;">Sum Top N:</div>'
+    checkbox_sum_html += '<div style="margin-bottom: 8px; position: relative;"><input type="text" id="patternFilterInputSum" placeholder="Regex filter..." style="width: 100%; padding: 4px 24px 4px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; box-sizing: border-box;"><span id="clearFilterBtnSum" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 14px; color: #999; display: none;" title="Clear filter">×</span></div>'
+    checkbox_sum_html += f'<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkAllSum" checked> <strong>All</strong></label></div>'
+    checkbox_sum_html += f'<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkNoneSum"> <strong>None</strong></label></div>'
+    checkbox_sum_html += '<hr style="margin: 8px 0;">'
+
+    for i, pattern in enumerate(pivot_sum.columns):
+        pattern_id = f'pattern_sum_{i}'
+        pattern_display = pattern[:50] + ('...' if len(pattern) > 50 else '')
+        trace_color = plotly_default_colors[i % len(plotly_default_colors)]
+        checkbox_sum_html += f'<div class="pattern-item-sum" style="margin-bottom: 3px; font-size: 11px;" data-pattern="{pattern}"><label><input type="checkbox" class="pattern-checkbox-sum" id="{pattern_id}" data-index="{i}" checked> <span style="color: {trace_color}; font-weight: bold;">{pattern_display}</span></label></div>'
+
+    checkbox_sum_html += '</div>'
+
+    # Create checkbox HTML for Average chart (bottom)
+    checkbox_avg_html = '<div id="filterCheckboxPanelAvg" style="position: fixed; right: 20px; top: 460px; width: 250px; max-height: 350px; overflow-y: auto; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.1); color: #444; font-family: \'Open Sans\', verdana, arial, sans-serif;">'
+    checkbox_avg_html += '<div style="font-weight: bold; margin-bottom: 10px; font-size: 14px;">Average Top N:</div>'
+    checkbox_avg_html += '<div style="margin-bottom: 8px; position: relative;"><input type="text" id="patternFilterInputAvg" placeholder="Regex filter..." style="width: 100%; padding: 4px 24px 4px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; box-sizing: border-box;"><span id="clearFilterBtnAvg" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 14px; color: #999; display: none;" title="Clear filter">×</span></div>'
+    checkbox_avg_html += f'<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkAllAvg" checked> <strong>All</strong></label></div>'
+    checkbox_avg_html += f'<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkNoneAvg"> <strong>None</strong></label></div>'
+    checkbox_avg_html += '<hr style="margin: 8px 0;">'
+
+    for i, pattern in enumerate(pivot_avg.columns):
+        pattern_id = f'pattern_avg_{i}'
+        pattern_display = pattern[:50] + ('...' if len(pattern) > 50 else '')
+        trace_color = plotly_default_colors[i % len(plotly_default_colors)]
+        checkbox_avg_html += f'<div class="pattern-item-avg" style="margin-bottom: 3px; font-size: 11px;" data-pattern="{pattern}"><label><input type="checkbox" class="pattern-checkbox-avg" id="{pattern_id}" data-index="{i + len(pivot_sum.columns)}" checked> <span style="color: {trace_color}; font-weight: bold;">{pattern_display}</span></label></div>'
+
+    checkbox_avg_html += '</div>'
+
+    # Add hover text display area
+    hover_text_html = '''
+    <div id="hoverTextDisplay" style="position: fixed; bottom: 20px; right: 20px; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; max-width: 300px; max-height: 150px; overflow-y: auto; display: none; z-index: 2000; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-size: 12px; color: #444; font-family: 'Open Sans', verdana, arial, sans-serif; cursor: pointer;">
+        <div style="font-weight: bold; margin-bottom: 5px;">Hover Info (Click to copy):</div>
+        <div id="hoverTextContent" style="white-space: pre-wrap; word-break: break-word;"></div>
+        <div style="margin-top: 5px; font-size: 10px; color: #666;">Click or press Ctrl+C to copy</div>
+    </div>
+    '''
+
+    # JavaScript for checkbox functionality and hover text copy
+    js_code = f'''
+    <script>
+    (function() {{
+        let lastHoverText = '';
+        const sumTraceCount = {len(pivot_sum.columns)};
+        const avgTraceCount = {len(pivot_avg.columns)};
+
+        function copyToClipboard(text) {{
+            const hoverTextContent = document.getElementById('hoverTextContent');
+            if (!hoverTextContent) return;
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {{
+                navigator.clipboard.writeText(text).then(() => {{
+                    const originalContent = hoverTextContent.innerHTML;
+                    hoverTextContent.innerHTML = originalContent + '<br><span style="color: green;">✓ Copied!</span>';
+                    setTimeout(() => {{ hoverTextContent.innerHTML = originalContent; }}, 1000);
+                }}).catch(() => {{ fallbackCopy(text); }});
+            }} else {{
+                fallbackCopy(text);
+            }}
+        }}
+
+        function fallbackCopy(text) {{
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {{
+                document.execCommand('copy');
+                const hoverTextContent = document.getElementById('hoverTextContent');
+                if (hoverTextContent) {{
+                    const originalContent = hoverTextContent.innerHTML;
+                    hoverTextContent.innerHTML = originalContent + '<br><span style="color: green;">✓ Copied!</span>';
+                    setTimeout(() => {{ hoverTextContent.innerHTML = originalContent; }}, 1000);
+                }}
+            }} catch (err) {{ console.error('Copy failed:', err); }}
+            document.body.removeChild(textArea);
+        }}
+
+        document.addEventListener('keydown', function(e) {{
+            if ((e.ctrlKey || e.metaKey) && e.key === 'c' && lastHoverText) {{
+                const hoverTextDisplay = document.getElementById('hoverTextDisplay');
+                if (hoverTextDisplay && hoverTextDisplay.style.display !== 'none') {{
+                    e.preventDefault();
+                    copyToClipboard(lastHoverText);
+                }}
+            }}
+        }});
+
+        function initCheckboxes() {{
+            const plotlyDiv = document.getElementById("{actual_div_id}") ||
+                             document.querySelector('.js-plotly-plot') ||
+                             document.querySelector('.plotly');
+
+            if (!plotlyDiv || !window.Plotly) {{
+                setTimeout(initCheckboxes, 100);
+                return;
+            }}
+
+            // Setup hover event
+            plotlyDiv.on('plotly_hover', function(data) {{
+                if (data && data.points && data.points.length > 0) {{
+                    const pointInfo = data.points.map(pt => {{
+                        const count = pt.y !== undefined ? pt.y : 0;
+                        const traceName = pt.data?.name || pt.fullData?.name || 'Unknown';
+                        return {{ count: count, pattern: traceName }};
+                    }});
+
+                    pointInfo.sort((a, b) => b.count - a.count);
+
+                    let displayText = '';
+                    pointInfo.forEach((info, index) => {{
+                        if (index > 0) displayText += '\\n';
+                        displayText += `Count: ${{info.count.toLocaleString()}}, Pattern: ${{info.pattern}}`;
+                    }});
+
+                    lastHoverText = displayText;
+
+                    const hoverTextContent = document.getElementById('hoverTextContent');
+                    const hoverTextDisplay = document.getElementById('hoverTextDisplay');
+                    if (hoverTextContent && hoverTextDisplay) {{
+                        hoverTextContent.textContent = displayText;
+                        hoverTextDisplay.style.display = 'block';
+                    }}
+                }}
+            }});
+
+            // Click to copy
+            const hoverTextDisplay = document.getElementById('hoverTextDisplay');
+            if (hoverTextDisplay) {{
+                hoverTextDisplay.addEventListener('click', function() {{
+                    if (lastHoverText) copyToClipboard(lastHoverText);
+                }});
+            }}
+
+            // Checkbox handlers for Sum chart
+            const checkAllSum = document.getElementById('checkAllSum');
+            const checkNoneSum = document.getElementById('checkNoneSum');
+            const checkboxesSum = document.querySelectorAll('.pattern-checkbox-sum');
+
+            // Checkbox handlers for Average chart
+            const checkAllAvg = document.getElementById('checkAllAvg');
+            const checkNoneAvg = document.getElementById('checkNoneAvg');
+            const checkboxesAvg = document.querySelectorAll('.pattern-checkbox-avg');
+
+            function updateVisibility() {{
+                const visible = [];
+
+                // Sum traces
+                checkboxesSum.forEach(cb => visible.push(cb.checked));
+                // Average traces
+                checkboxesAvg.forEach(cb => visible.push(cb.checked));
+
+                try {{
+                    Plotly.restyle(plotlyDiv, {{ visible: visible }},
+                                  Array.from({{length: visible.length}}, (_, i) => i));
+                }} catch (e) {{
+                    console.error('Error updating visibility:', e);
+                }}
+            }}
+
+            // Sum chart controls
+            checkAllSum.addEventListener('change', function() {{
+                if (this.checked) {{
+                    checkNoneSum.checked = false;
+                    // Only check visible items (filtered items)
+                    checkboxesSum.forEach(cb => {{
+                        const item = cb.closest('.pattern-item-sum');
+                        if (item && item.style.display !== 'none') {{
+                            cb.checked = true;
+                        }}
+                    }});
+                    updateVisibility();
+                }}
+            }});
+
+            checkNoneSum.addEventListener('change', function() {{
+                if (this.checked) {{
+                    checkAllSum.checked = false;
+                    checkboxesSum.forEach(cb => cb.checked = false);
+                    updateVisibility();
+                }}
+            }});
+
+            checkboxesSum.forEach(cb => {{
+                cb.addEventListener('change', function() {{
+                    if (this.checked) checkNoneSum.checked = false;
+                    // Check if all visible items are checked
+                    const visibleCheckboxes = Array.from(checkboxesSum).filter(c => {{
+                        const item = c.closest('.pattern-item-sum');
+                        return item && item.style.display !== 'none';
+                    }});
+                    const allVisibleChecked = visibleCheckboxes.length > 0 && visibleCheckboxes.every(c => c.checked);
+                    checkAllSum.checked = allVisibleChecked;
+                    updateVisibility();
+                }});
+            }});
+
+            // Average chart controls
+            checkAllAvg.addEventListener('change', function() {{
+                if (this.checked) {{
+                    checkNoneAvg.checked = false;
+                    // Only check visible items (filtered items)
+                    checkboxesAvg.forEach(cb => {{
+                        const item = cb.closest('.pattern-item-avg');
+                        if (item && item.style.display !== 'none') {{
+                            cb.checked = true;
+                        }}
+                    }});
+                    updateVisibility();
+                }}
+            }});
+
+            checkNoneAvg.addEventListener('change', function() {{
+                if (this.checked) {{
+                    checkAllAvg.checked = false;
+                    checkboxesAvg.forEach(cb => cb.checked = false);
+                    updateVisibility();
+                }}
+            }});
+
+            checkboxesAvg.forEach(cb => {{
+                cb.addEventListener('change', function() {{
+                    if (this.checked) checkNoneAvg.checked = false;
+                    // Check if all visible items are checked
+                    const visibleCheckboxes = Array.from(checkboxesAvg).filter(c => {{
+                        const item = c.closest('.pattern-item-avg');
+                        return item && item.style.display !== 'none';
+                    }});
+                    const allVisibleChecked = visibleCheckboxes.length > 0 && visibleCheckboxes.every(c => c.checked);
+                    checkAllAvg.checked = allVisibleChecked;
+                    updateVisibility();
+                }});
+            }});
+
+            // Pattern filter functionality for Sum panel
+            const patternFilterInputSum = document.getElementById('patternFilterInputSum');
+            const clearFilterBtnSum = document.getElementById('clearFilterBtnSum');
+
+            if (patternFilterInputSum) {{
+                const filterPatternsSum = function() {{
+                    const filterText = patternFilterInputSum.value.trim();
+                    const patternItems = document.querySelectorAll('.pattern-item-sum');
+
+                    if (clearFilterBtnSum) {{
+                        clearFilterBtnSum.style.display = filterText ? 'block' : 'none';
+                    }}
+
+                    if (!filterText) {{
+                        patternItems.forEach(item => {{ item.style.display = ''; }});
+                        return;
+                    }}
+
+                    try {{
+                        const regex = new RegExp(filterText, 'i');
+                        patternItems.forEach(item => {{
+                            const pattern = item.getAttribute('data-pattern') || '';
+                            item.style.display = regex.test(pattern) ? '' : 'none';
+                        }});
+                    }} catch (e) {{
+                        patternItems.forEach(item => {{ item.style.display = ''; }});
+                    }}
+                }};
+
+                patternFilterInputSum.addEventListener('input', filterPatternsSum);
+                patternFilterInputSum.addEventListener('keyup', filterPatternsSum);
+
+                if (clearFilterBtnSum) {{
+                    clearFilterBtnSum.addEventListener('click', function() {{
+                        patternFilterInputSum.value = '';
+                        filterPatternsSum();
+                        patternFilterInputSum.focus();
+                    }});
+                    clearFilterBtnSum.addEventListener('mouseenter', function() {{ this.style.color = '#333'; }});
+                    clearFilterBtnSum.addEventListener('mouseleave', function() {{ this.style.color = '#999'; }});
+                }}
+            }}
+
+            // Pattern filter functionality for Average panel
+            const patternFilterInputAvg = document.getElementById('patternFilterInputAvg');
+            const clearFilterBtnAvg = document.getElementById('clearFilterBtnAvg');
+
+            if (patternFilterInputAvg) {{
+                const filterPatternsAvg = function() {{
+                    const filterText = patternFilterInputAvg.value.trim();
+                    const patternItems = document.querySelectorAll('.pattern-item-avg');
+
+                    if (clearFilterBtnAvg) {{
+                        clearFilterBtnAvg.style.display = filterText ? 'block' : 'none';
+                    }}
+
+                    if (!filterText) {{
+                        patternItems.forEach(item => {{ item.style.display = ''; }});
+                        return;
+                    }}
+
+                    try {{
+                        const regex = new RegExp(filterText, 'i');
+                        patternItems.forEach(item => {{
+                            const pattern = item.getAttribute('data-pattern') || '';
+                            item.style.display = regex.test(pattern) ? '' : 'none';
+                        }});
+                    }} catch (e) {{
+                        patternItems.forEach(item => {{ item.style.display = ''; }});
+                    }}
+                }};
+
+                patternFilterInputAvg.addEventListener('input', filterPatternsAvg);
+                patternFilterInputAvg.addEventListener('keyup', filterPatternsAvg);
+
+                if (clearFilterBtnAvg) {{
+                    clearFilterBtnAvg.addEventListener('click', function() {{
+                        patternFilterInputAvg.value = '';
+                        filterPatternsAvg();
+                        patternFilterInputAvg.focus();
+                    }});
+                    clearFilterBtnAvg.addEventListener('mouseenter', function() {{ this.style.color = '#333'; }});
+                    clearFilterBtnAvg.addEventListener('mouseleave', function() {{ this.style.color = '#999'; }});
+                }}
+            }}
+        }}
+
+        if (document.readyState === 'loading') {{
+            document.addEventListener('DOMContentLoaded', () => setTimeout(initCheckboxes, 300));
+        }} else {{
+            setTimeout(initCheckboxes, 300);
+        }}
+    }})();
+    </script>
+    '''
+
+    # Insert checkbox HTML, hover text display, and JavaScript before closing body tag
+    if '</body>' in html_content:
+        html_content = html_content.rsplit('</body>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_sum_html + checkbox_avg_html + hover_text_html + js_code + '</body>' + html_content[1]
+    elif '</html>' in html_content:
+        html_content = html_content.rsplit('</html>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_sum_html + checkbox_avg_html + hover_text_html + js_code + '</html>' + html_content[1]
+    else:
+        html_content += checkbox_sum_html + checkbox_avg_html + hover_text_html + js_code
+
+    # Write modified HTML
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+    logger.info(f"Received bytes visualization saved to {output_file}")
+
+    return {
+        'filePath': str(output_file.resolve()),
+        'totalTransactions': len(log_df),
+        'topN': topN,
+        'interval': interval,
+        'patternsFile': patternsFile,
+        'topNSum': top_patterns_sum,
+        'topNAvg': top_patterns_avg
+    }
+
+
+# ============================================================================
+# MCP Tool: generateSentBytesPerURI
+# ============================================================================
+
+def generateSentBytesPerURI(
+    inputFile: str,
+    logFormatFile: str,
+    outputFormat: str = 'html',
+    topN: int = 10,
+    interval: str = '10s',
+    patternsFile: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generate Sent Bytes per URI time-series visualization with Sum and Average Top N.
+
+    Args:
+        inputFile (str): Input log file path
+        logFormatFile (str): Log format JSON file path
+        outputFormat (str): Output format ('html' only supported)
+        topN (int): Number of top URI patterns to display (default: 10)
+        interval (str): Time interval for aggregation (default: '10s').
+                       Examples: '1s', '10s', '1min', '5min', '1h'
+        patternsFile (str, optional): Path to JSON file containing URL patterns.
+                                    If provided, uses these patterns for visualization.
+                                    If not provided, extracts top N patterns and saves to file.
+
+    Returns:
+        dict: {
+            'filePath': str (sentbytes_*.html),
+            'totalTransactions': int,
+            'patternsFile': str (path to saved patterns file),
+            'topNSum': list (top N URIs by sum),
+            'topNAvg': list (top N URIs by average)
+        }
+    """
+    if outputFormat != 'html':
+        raise ValidationError('outputFormat', "Only 'html' output format is currently supported")
+
+    # Normalize interval parameter to pandas-compatible format
+    interval = _normalize_interval(interval)
+
+    # Load log format
+    with open(logFormatFile, 'r', encoding='utf-8') as f:
+        format_info = json.load(f)
+
+    # Parse log file
+    from data_parser import parse_log_file_with_format
+    log_df = parse_log_file_with_format(inputFile, logFormatFile)
+
+    if log_df.empty:
+        raise ValueError("No data to visualize")
+
+    # Get field mappings using FieldMapper
+    time_field = FieldMapper.find_field(log_df, 'time', format_info)
+    url_field = FieldMapper.find_field(log_df, 'url', format_info)
+
+    # For bytes field, provide possible alternative names for SENT bytes
+    possible_bytes_fields = ['sent_bytes', 'bytes_sent', 'body_bytes_sent',
+                             'response_size', 'bytes', 'size']
+    bytes_field = FieldMapper.find_field(log_df, 'sentBytes', format_info,
+                                         possible_names=possible_bytes_fields)
+
+    # Validate required fields
+    if not time_field or time_field not in log_df.columns:
+        raise ValueError(f"Time field not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
+    if not url_field or url_field not in log_df.columns:
+        raise ValueError(f"URL field not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
+    if not bytes_field or bytes_field not in log_df.columns:
+        raise ValueError(f"Sent bytes field not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
+
+    # Convert types
+    log_df[time_field] = pd.to_datetime(log_df[time_field], errors='coerce')
+    log_df[bytes_field] = pd.to_numeric(log_df[bytes_field], errors='coerce')
+    log_df = log_df.dropna(subset=[time_field, bytes_field])
+
+    # Determine input path for output file location
+    input_path = Path(inputFile)
+
+    # Load patterns from file if provided first (to use pattern rules for generalization)
+    patterns_file_for_generalize = None
+    top_patterns = None
+
+    if patternsFile and os.path.exists(patternsFile):
+        # Load patterns from file
+        try:
+            with open(patternsFile, 'r', encoding='utf-8') as f:
+                patterns_data = json.load(f)
+
+            # Extract pattern rules from file
+            if isinstance(patterns_data, dict):
+                if 'patternRules' in patterns_data and isinstance(patterns_data['patternRules'], list):
+                    patterns_file_for_generalize = patternsFile
+                    # Extract replacement values from patternRules as top_patterns
+                    top_patterns = [rule.get('replacement', '') for rule in patterns_data['patternRules'] if isinstance(rule, dict) and 'replacement' in rule]
+                    top_patterns = [p for p in top_patterns if p]  # Remove empty strings
+                    logger.info(f"Using pattern rules from {patternsFile} for URL generalization")
+                    logger.info(f"Loaded {len(top_patterns)} patterns from patternRules")
+                else:
+                    # Fallback for old format (backward compatibility)
+                    if 'patterns' in patterns_data:
+                        top_patterns = patterns_data['patterns']
+                        patterns_file_for_generalize = patternsFile
+                        logger.info(f"Using patterns from {patternsFile} (will be converted to rules)")
+                    elif 'urls' in patterns_data:
+                        top_patterns = patterns_data['urls']
+                        patterns_file_for_generalize = patternsFile
+                        logger.info(f"Using URLs from {patternsFile} (will be converted to rules)")
+                    else:
+                        raise ValueError(f"No patternRules, patterns, or urls found in {patternsFile}")
+            else:
+                raise ValueError(f"Unexpected patterns file format: {type(patterns_data)}")
+
+            # Ensure patterns are strings and unique
+            top_patterns = list(set([str(p) for p in top_patterns if p]))
+
+        except Exception as e:
+            logger.warning(f"Could not load patterns file {patternsFile}: {e}")
+            logger.info(f"Falling back to extracting top {topN} patterns")
+            patternsFile = None
+            top_patterns = None
+
+    # Generalize URLs (remove IDs) using pattern file if available
+    from data_processor import _generalize_url
+    log_df['url_pattern'] = log_df[url_field].apply(
+        lambda x: _generalize_url(x, patterns_file_for_generalize) if pd.notna(x) else 'Unknown'
+    )
+
+    # Group by time interval and URL pattern
+    log_df['time_bucket'] = log_df[time_field].dt.floor(interval)
+
+    # Calculate sum and average for each time bucket and URL pattern
+    bytes_stats = log_df.groupby(['time_bucket', 'url_pattern'])[bytes_field].agg(['sum', 'mean']).reset_index()
+    bytes_stats.columns = ['time_bucket', 'url_pattern', 'sum_bytes', 'avg_bytes']
+
+    # If patterns were not loaded from file, extract top N by sum
+    if not patternsFile or not os.path.exists(patternsFile):
+        # Get top N URL patterns by total sum of bytes
+        pattern_total_sum = bytes_stats.groupby('url_pattern')['sum_bytes'].sum().sort_values(ascending=False)
+        top_patterns = pattern_total_sum.head(topN).index.tolist()
+
+        # Generate pattern rules from patterns
+        pattern_rules = []
+        for pattern in top_patterns:
+            # Convert pattern with * wildcards to regex
+            temp_pattern = pattern.replace('*', '__WILDCARD__')
+            escaped_pattern = re.escape(temp_pattern)
+            regex_pattern = escaped_pattern.replace('__WILDCARD__', '.*')
+
+            pattern_rules.append({
+                'pattern': f'^{regex_pattern}$',
+                'replacement': pattern
+            })
+
+        # Save patterns to file with pattern rules only
+        timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
+        patterns_file_path = input_path.parent / f"patterns_{timestamp}.json"
+
+        patterns_data = {
+            'patternRules': pattern_rules,
+            'totalPatterns': len(top_patterns),
+            'extractedAt': datetime.now().isoformat(),
+            'sourceFile': str(inputFile),
+            'topN': topN,
+            'criteria': 'sum_sent_bytes'
+        }
+
+        with open(patterns_file_path, 'w', encoding='utf-8') as f:
+            json.dump(patterns_data, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Extracted top {len(top_patterns)} patterns and saved to {patterns_file_path}")
+        patternsFile = str(patterns_file_path)
+
+    # Filter data to only include top patterns
+    bytes_stats_filtered = bytes_stats[bytes_stats['url_pattern'].isin(top_patterns)].copy()
+
+    # Get top N by sum
+    pattern_sum = bytes_stats_filtered.groupby('url_pattern')['sum_bytes'].sum().sort_values(ascending=False)
+    top_patterns_sum = pattern_sum.head(topN).index.tolist()
+
+    # Get top N by average
+    pattern_avg = bytes_stats_filtered.groupby('url_pattern')['avg_bytes'].mean().sort_values(ascending=False)
+    top_patterns_avg = pattern_avg.head(topN).index.tolist()
+
+    # Create pivot tables for sum and average
+    pivot_sum = bytes_stats_filtered[bytes_stats_filtered['url_pattern'].isin(top_patterns_sum)].pivot_table(
+        index='time_bucket',
+        columns='url_pattern',
+        values='sum_bytes',
+        fill_value=0
+    )
+
+    pivot_avg = bytes_stats_filtered[bytes_stats_filtered['url_pattern'].isin(top_patterns_avg)].pivot_table(
+        index='time_bucket',
+        columns='url_pattern',
+        values='avg_bytes',
+        fill_value=0
+    )
+
+    # Sort columns by total sum/avg (descending)
+    if len(pivot_sum.columns) > 0:
+        pivot_sum = pivot_sum[pattern_sum.head(topN).index]
+    if len(pivot_avg.columns) > 0:
+        pivot_avg = pivot_avg[pattern_avg.head(topN).index]
+
+    # Create subplots with two charts
+    fig = make_subplots(
+        rows=2, cols=1,
+        subplot_titles=(
+            f'Sent Bytes Sum per URI Pattern (Top {topN}, Interval: {interval})',
+            f'Sent Bytes Average per URI Pattern (Top {topN}, Interval: {interval})'
+        ),
+        vertical_spacing=0.15
+    )
+
+    # Plotly's default color palette
+    plotly_default_colors = [
+        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+        '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+        '#c49c94', '#f7b6d3', '#c7c7c7', '#dbdb8d', '#9edae5'
+    ]
+
+    # Add Sum Top N traces
+    for i, pattern in enumerate(pivot_sum.columns):
+        trace_color = plotly_default_colors[i % len(plotly_default_colors)]
+        fig.add_trace(
+            go.Scattergl(
+                x=pivot_sum.index,
+                y=pivot_sum[pattern],
+                mode='lines+markers',
+                name=pattern,
+                line=dict(width=2, color=trace_color),
+                marker=dict(size=4, color=trace_color),
+                legendgroup='sum',
+                showlegend=True,
+                hovertemplate=f'Sum: %{{y:,.0f}} bytes<br>Pattern: {pattern}<extra></extra>'
+            ),
+            row=1, col=1
+        )
+
+    # Add Average Top N traces
+    for i, pattern in enumerate(pivot_avg.columns):
+        trace_color = plotly_default_colors[i % len(plotly_default_colors)]
+        fig.add_trace(
+            go.Scattergl(
+                x=pivot_avg.index,
+                y=pivot_avg[pattern],
+                mode='lines+markers',
+                name=pattern,
+                line=dict(width=2, color=trace_color),
+                marker=dict(size=4, color=trace_color),
+                legendgroup='avg',
+                showlegend=True,
+                hovertemplate=f'Avg: %{{y:,.0f}} bytes<br>Pattern: {pattern}<extra></extra>'
+            ),
+            row=2, col=1
+        )
+
+    # Update layout - hide legend since we use checkboxes
+    fig.update_layout(
+        height=900,
+        showlegend=False,  # Hide legend, use checkboxes instead
+        title_text=f"Sent Bytes per URI Pattern Analysis",
+        hovermode='x unified',
+        margin=dict(r=280)  # Add right margin for checkbox panels
+    )
+
+    # Update axes
+    fig.update_xaxes(title_text='Time', row=2, col=1)
+    fig.update_yaxes(title_text='Sum Bytes', row=1, col=1)
+    fig.update_yaxes(title_text='Average Bytes', row=2, col=1)
+
+    # Add range slider for time navigation on bottom chart
+    fig.update_xaxes(
+        rangeslider_visible=True,
+        rangeselector=dict(
+            buttons=list([
+                dict(count=1, label="1h", step="hour", stepmode="backward"),
+                dict(count=6, label="6h", step="hour", stepmode="backward"),
+                dict(count=12, label="12h", step="hour", stepmode="backward"),
+                dict(count=1, label="1d", step="day", stepmode="backward"),
+                dict(step="all")
+            ])
+        ),
+        row=2, col=1
+    )
+
+    # Generate output file
+    timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
+    output_file = input_path.parent / f"sentbytes_{timestamp}.html"
+
+    # Save as HTML with specific div_id
+    plotly_div_id = f'plotly-div-{timestamp}'
+    fig.write_html(str(output_file), include_plotlyjs='cdn', div_id=plotly_div_id)
+
+    # Add checkbox controls and JavaScript for filtering
+    # Read the generated HTML
+    with open(output_file, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+
+    # Extract the actual div ID from HTML
+    div_id_match = re.search(r'<div id="([^"]+)"[^>]*class="[^"]*plotly[^"]*"', html_content)
+    actual_div_id = div_id_match.group(1) if div_id_match else plotly_div_id
+
+    # Create checkbox HTML for Sum chart (top)
+    checkbox_sum_html = '<div id="filterCheckboxPanelSum" style="position: fixed; right: 20px; top: 80px; width: 250px; max-height: 350px; overflow-y: auto; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.1); color: #444; font-family: \'Open Sans\', verdana, arial, sans-serif;">'
+    checkbox_sum_html += '<div style="font-weight: bold; margin-bottom: 10px; font-size: 14px;">Sum Top N:</div>'
+    checkbox_sum_html += '<div style="margin-bottom: 8px; position: relative;"><input type="text" id="patternFilterInputSum" placeholder="Regex filter..." style="width: 100%; padding: 4px 24px 4px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; box-sizing: border-box;"><span id="clearFilterBtnSum" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 14px; color: #999; display: none;" title="Clear filter">×</span></div>'
+    checkbox_sum_html += f'<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkAllSum" checked> <strong>All</strong></label></div>'
+    checkbox_sum_html += f'<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkNoneSum"> <strong>None</strong></label></div>'
+    checkbox_sum_html += '<hr style="margin: 8px 0;">'
+
+    for i, pattern in enumerate(pivot_sum.columns):
+        pattern_id = f'pattern_sum_{i}'
+        pattern_display = pattern[:50] + ('...' if len(pattern) > 50 else '')
+        trace_color = plotly_default_colors[i % len(plotly_default_colors)]
+        checkbox_sum_html += f'<div class="pattern-item-sum" style="margin-bottom: 3px; font-size: 11px;" data-pattern="{pattern}"><label><input type="checkbox" class="pattern-checkbox-sum" id="{pattern_id}" data-index="{i}" checked> <span style="color: {trace_color}; font-weight: bold;">{pattern_display}</span></label></div>'
+
+    checkbox_sum_html += '</div>'
+
+    # Create checkbox HTML for Average chart (bottom)
+    checkbox_avg_html = '<div id="filterCheckboxPanelAvg" style="position: fixed; right: 20px; top: 460px; width: 250px; max-height: 350px; overflow-y: auto; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.1); color: #444; font-family: \'Open Sans\', verdana, arial, sans-serif;">'
+    checkbox_avg_html += '<div style="font-weight: bold; margin-bottom: 10px; font-size: 14px;">Average Top N:</div>'
+    checkbox_avg_html += '<div style="margin-bottom: 8px; position: relative;"><input type="text" id="patternFilterInputAvg" placeholder="Regex filter..." style="width: 100%; padding: 4px 24px 4px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; box-sizing: border-box;"><span id="clearFilterBtnAvg" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 14px; color: #999; display: none;" title="Clear filter">×</span></div>'
+    checkbox_avg_html += f'<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkAllAvg" checked> <strong>All</strong></label></div>'
+    checkbox_avg_html += f'<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkNoneAvg"> <strong>None</strong></label></div>'
+    checkbox_avg_html += '<hr style="margin: 8px 0;">'
+
+    for i, pattern in enumerate(pivot_avg.columns):
+        pattern_id = f'pattern_avg_{i}'
+        pattern_display = pattern[:50] + ('...' if len(pattern) > 50 else '')
+        trace_color = plotly_default_colors[i % len(plotly_default_colors)]
+        checkbox_avg_html += f'<div class="pattern-item-avg" style="margin-bottom: 3px; font-size: 11px;" data-pattern="{pattern}"><label><input type="checkbox" class="pattern-checkbox-avg" id="{pattern_id}" data-index="{i + len(pivot_sum.columns)}" checked> <span style="color: {trace_color}; font-weight: bold;">{pattern_display}</span></label></div>'
+
+    checkbox_avg_html += '</div>'
+
+    # Add hover text display area
+    hover_text_html = '''
+    <div id="hoverTextDisplay" style="position: fixed; bottom: 20px; right: 20px; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; max-width: 300px; max-height: 150px; overflow-y: auto; display: none; z-index: 2000; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-size: 12px; color: #444; font-family: 'Open Sans', verdana, arial, sans-serif; cursor: pointer;">
+        <div style="font-weight: bold; margin-bottom: 5px;">Hover Info (Click to copy):</div>
+        <div id="hoverTextContent" style="white-space: pre-wrap; word-break: break-word;"></div>
+        <div style="margin-top: 5px; font-size: 10px; color: #666;">Click or press Ctrl+C to copy</div>
+    </div>
+    '''
+
+    # JavaScript for checkbox functionality and hover text copy
+    js_code = f'''
+    <script>
+    (function() {{
+        let lastHoverText = '';
+        const sumTraceCount = {len(pivot_sum.columns)};
+        const avgTraceCount = {len(pivot_avg.columns)};
+
+        function copyToClipboard(text) {{
+            const hoverTextContent = document.getElementById('hoverTextContent');
+            if (!hoverTextContent) return;
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {{
+                navigator.clipboard.writeText(text).then(() => {{
+                    const originalContent = hoverTextContent.innerHTML;
+                    hoverTextContent.innerHTML = originalContent + '<br><span style="color: green;">✓ Copied!</span>';
+                    setTimeout(() => {{ hoverTextContent.innerHTML = originalContent; }}, 1000);
+                }}).catch(() => {{ fallbackCopy(text); }});
+            }} else {{
+                fallbackCopy(text);
+            }}
+        }}
+
+        function fallbackCopy(text) {{
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {{
+                document.execCommand('copy');
+                const hoverTextContent = document.getElementById('hoverTextContent');
+                if (hoverTextContent) {{
+                    const originalContent = hoverTextContent.innerHTML;
+                    hoverTextContent.innerHTML = originalContent + '<br><span style="color: green;">✓ Copied!</span>';
+                    setTimeout(() => {{ hoverTextContent.innerHTML = originalContent; }}, 1000);
+                }}
+            }} catch (err) {{ console.error('Copy failed:', err); }}
+            document.body.removeChild(textArea);
+        }}
+
+        document.addEventListener('keydown', function(e) {{
+            if ((e.ctrlKey || e.metaKey) && e.key === 'c' && lastHoverText) {{
+                const hoverTextDisplay = document.getElementById('hoverTextDisplay');
+                if (hoverTextDisplay && hoverTextDisplay.style.display !== 'none') {{
+                    e.preventDefault();
+                    copyToClipboard(lastHoverText);
+                }}
+            }}
+        }});
+
+        function initCheckboxes() {{
+            const plotlyDiv = document.getElementById("{actual_div_id}") ||
+                             document.querySelector('.js-plotly-plot') ||
+                             document.querySelector('.plotly');
+
+            if (!plotlyDiv || !window.Plotly) {{
+                setTimeout(initCheckboxes, 100);
+                return;
+            }}
+
+            // Setup hover event
+            plotlyDiv.on('plotly_hover', function(data) {{
+                if (data && data.points && data.points.length > 0) {{
+                    const pointInfo = data.points.map(pt => {{
+                        const count = pt.y !== undefined ? pt.y : 0;
+                        const traceName = pt.data?.name || pt.fullData?.name || 'Unknown';
+                        return {{ count: count, pattern: traceName }};
+                    }});
+
+                    pointInfo.sort((a, b) => b.count - a.count);
+
+                    let displayText = '';
+                    pointInfo.forEach((info, index) => {{
+                        if (index > 0) displayText += '\\n';
+                        displayText += `Count: ${{info.count.toLocaleString()}}, Pattern: ${{info.pattern}}`;
+                    }});
+
+                    lastHoverText = displayText;
+
+                    const hoverTextContent = document.getElementById('hoverTextContent');
+                    const hoverTextDisplay = document.getElementById('hoverTextDisplay');
+                    if (hoverTextContent && hoverTextDisplay) {{
+                        hoverTextContent.textContent = displayText;
+                        hoverTextDisplay.style.display = 'block';
+                    }}
+                }}
+            }});
+
+            // Click to copy
+            const hoverTextDisplay = document.getElementById('hoverTextDisplay');
+            if (hoverTextDisplay) {{
+                hoverTextDisplay.addEventListener('click', function() {{
+                    if (lastHoverText) copyToClipboard(lastHoverText);
+                }});
+            }}
+
+            // Checkbox handlers for Sum chart
+            const checkAllSum = document.getElementById('checkAllSum');
+            const checkNoneSum = document.getElementById('checkNoneSum');
+            const checkboxesSum = document.querySelectorAll('.pattern-checkbox-sum');
+
+            // Checkbox handlers for Average chart
+            const checkAllAvg = document.getElementById('checkAllAvg');
+            const checkNoneAvg = document.getElementById('checkNoneAvg');
+            const checkboxesAvg = document.querySelectorAll('.pattern-checkbox-avg');
+
+            function updateVisibility() {{
+                const visible = [];
+
+                // Sum traces
+                checkboxesSum.forEach(cb => visible.push(cb.checked));
+                // Average traces
+                checkboxesAvg.forEach(cb => visible.push(cb.checked));
+
+                try {{
+                    Plotly.restyle(plotlyDiv, {{ visible: visible }},
+                                  Array.from({{length: visible.length}}, (_, i) => i));
+                }} catch (e) {{
+                    console.error('Error updating visibility:', e);
+                }}
+            }}
+
+            // Sum chart controls
+            checkAllSum.addEventListener('change', function() {{
+                if (this.checked) {{
+                    checkNoneSum.checked = false;
+                    // Only check visible items (filtered items)
+                    checkboxesSum.forEach(cb => {{
+                        const item = cb.closest('.pattern-item-sum');
+                        if (item && item.style.display !== 'none') {{
+                            cb.checked = true;
+                        }}
+                    }});
+                    updateVisibility();
+                }}
+            }});
+
+            checkNoneSum.addEventListener('change', function() {{
+                if (this.checked) {{
+                    checkAllSum.checked = false;
+                    checkboxesSum.forEach(cb => cb.checked = false);
+                    updateVisibility();
+                }}
+            }});
+
+            checkboxesSum.forEach(cb => {{
+                cb.addEventListener('change', function() {{
+                    if (this.checked) checkNoneSum.checked = false;
+                    // Check if all visible items are checked
+                    const visibleCheckboxes = Array.from(checkboxesSum).filter(c => {{
+                        const item = c.closest('.pattern-item-sum');
+                        return item && item.style.display !== 'none';
+                    }});
+                    const allVisibleChecked = visibleCheckboxes.length > 0 && visibleCheckboxes.every(c => c.checked);
+                    checkAllSum.checked = allVisibleChecked;
+                    updateVisibility();
+                }});
+            }});
+
+            // Average chart controls
+            checkAllAvg.addEventListener('change', function() {{
+                if (this.checked) {{
+                    checkNoneAvg.checked = false;
+                    // Only check visible items (filtered items)
+                    checkboxesAvg.forEach(cb => {{
+                        const item = cb.closest('.pattern-item-avg');
+                        if (item && item.style.display !== 'none') {{
+                            cb.checked = true;
+                        }}
+                    }});
+                    updateVisibility();
+                }}
+            }});
+
+            checkNoneAvg.addEventListener('change', function() {{
+                if (this.checked) {{
+                    checkAllAvg.checked = false;
+                    checkboxesAvg.forEach(cb => cb.checked = false);
+                    updateVisibility();
+                }}
+            }});
+
+            checkboxesAvg.forEach(cb => {{
+                cb.addEventListener('change', function() {{
+                    if (this.checked) checkNoneAvg.checked = false;
+                    // Check if all visible items are checked
+                    const visibleCheckboxes = Array.from(checkboxesAvg).filter(c => {{
+                        const item = c.closest('.pattern-item-avg');
+                        return item && item.style.display !== 'none';
+                    }});
+                    const allVisibleChecked = visibleCheckboxes.length > 0 && visibleCheckboxes.every(c => c.checked);
+                    checkAllAvg.checked = allVisibleChecked;
+                    updateVisibility();
+                }});
+            }});
+
+            // Pattern filter functionality for Sum panel
+            const patternFilterInputSum = document.getElementById('patternFilterInputSum');
+            const clearFilterBtnSum = document.getElementById('clearFilterBtnSum');
+
+            if (patternFilterInputSum) {{
+                const filterPatternsSum = function() {{
+                    const filterText = patternFilterInputSum.value.trim();
+                    const patternItems = document.querySelectorAll('.pattern-item-sum');
+
+                    if (clearFilterBtnSum) {{
+                        clearFilterBtnSum.style.display = filterText ? 'block' : 'none';
+                    }}
+
+                    if (!filterText) {{
+                        patternItems.forEach(item => {{ item.style.display = ''; }});
+                        return;
+                    }}
+
+                    try {{
+                        const regex = new RegExp(filterText, 'i');
+                        patternItems.forEach(item => {{
+                            const pattern = item.getAttribute('data-pattern') || '';
+                            item.style.display = regex.test(pattern) ? '' : 'none';
+                        }});
+                    }} catch (e) {{
+                        patternItems.forEach(item => {{ item.style.display = ''; }});
+                    }}
+                }};
+
+                patternFilterInputSum.addEventListener('input', filterPatternsSum);
+                patternFilterInputSum.addEventListener('keyup', filterPatternsSum);
+
+                if (clearFilterBtnSum) {{
+                    clearFilterBtnSum.addEventListener('click', function() {{
+                        patternFilterInputSum.value = '';
+                        filterPatternsSum();
+                        patternFilterInputSum.focus();
+                    }});
+                    clearFilterBtnSum.addEventListener('mouseenter', function() {{ this.style.color = '#333'; }});
+                    clearFilterBtnSum.addEventListener('mouseleave', function() {{ this.style.color = '#999'; }});
+                }}
+            }}
+
+            // Pattern filter functionality for Average panel
+            const patternFilterInputAvg = document.getElementById('patternFilterInputAvg');
+            const clearFilterBtnAvg = document.getElementById('clearFilterBtnAvg');
+
+            if (patternFilterInputAvg) {{
+                const filterPatternsAvg = function() {{
+                    const filterText = patternFilterInputAvg.value.trim();
+                    const patternItems = document.querySelectorAll('.pattern-item-avg');
+
+                    if (clearFilterBtnAvg) {{
+                        clearFilterBtnAvg.style.display = filterText ? 'block' : 'none';
+                    }}
+
+                    if (!filterText) {{
+                        patternItems.forEach(item => {{ item.style.display = ''; }});
+                        return;
+                    }}
+
+                    try {{
+                        const regex = new RegExp(filterText, 'i');
+                        patternItems.forEach(item => {{
+                            const pattern = item.getAttribute('data-pattern') || '';
+                            item.style.display = regex.test(pattern) ? '' : 'none';
+                        }});
+                    }} catch (e) {{
+                        patternItems.forEach(item => {{ item.style.display = ''; }});
+                    }}
+                }};
+
+                patternFilterInputAvg.addEventListener('input', filterPatternsAvg);
+                patternFilterInputAvg.addEventListener('keyup', filterPatternsAvg);
+
+                if (clearFilterBtnAvg) {{
+                    clearFilterBtnAvg.addEventListener('click', function() {{
+                        patternFilterInputAvg.value = '';
+                        filterPatternsAvg();
+                        patternFilterInputAvg.focus();
+                    }});
+                    clearFilterBtnAvg.addEventListener('mouseenter', function() {{ this.style.color = '#333'; }});
+                    clearFilterBtnAvg.addEventListener('mouseleave', function() {{ this.style.color = '#999'; }});
+                }}
+            }}
+        }}
+
+        if (document.readyState === 'loading') {{
+            document.addEventListener('DOMContentLoaded', () => setTimeout(initCheckboxes, 300));
+        }} else {{
+            setTimeout(initCheckboxes, 300);
+        }}
+    }})();
+    </script>
+    '''
+
+    # Insert checkbox HTML, hover text display, and JavaScript before closing body tag
+    if '</body>' in html_content:
+        html_content = html_content.rsplit('</body>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_sum_html + checkbox_avg_html + hover_text_html + js_code + '</body>' + html_content[1]
+    elif '</html>' in html_content:
+        html_content = html_content.rsplit('</html>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_sum_html + checkbox_avg_html + hover_text_html + js_code + '</html>' + html_content[1]
+    else:
+        html_content += checkbox_sum_html + checkbox_avg_html + hover_text_html + js_code
+
+    # Write modified HTML
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+    logger.info(f"Sent bytes visualization saved to {output_file}")
+
+    return {
+        'filePath': str(output_file.resolve()),
+        'totalTransactions': len(log_df),
+        'topN': topN,
+        'interval': interval,
+        'patternsFile': patternsFile,
+        'topNSum': top_patterns_sum,
+        'topNAvg': top_patterns_avg
     }
 
 

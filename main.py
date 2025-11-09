@@ -27,7 +27,9 @@ from data_processor import (
 from data_visualizer import (
     generateXlog,
     generateRequestPerURI,
-    generateMultiMetricDashboard
+    generateMultiMetricDashboard,
+    generateReceivedBytesPerURI,
+    generateSentBytesPerURI
 )
 
 
@@ -83,11 +85,13 @@ def interactive_menu(log_file=None):
         print("  7. Generate XLog (response time scatter plot)")
         print("  8. Generate Request Count per URI")
         print("  9. Generate Dashboard")
-        print("  10. Run example pipeline")
+        print("  10. Generate Received Bytes per URI (Sum & Average)")
+        print("  11. Generate Sent Bytes per URI (Sum & Average)")
+        print("  12. Run example pipeline")
         print("  0. Exit")
         print("="*70)
 
-        choice = input("\nSelect operation (0-10): ").strip()
+        choice = input("\nSelect operation (0-12): ").strip()
 
         if choice == '0':
             print("\nExiting. Goodbye!")
@@ -111,6 +115,10 @@ def interactive_menu(log_file=None):
         elif choice == '9':
             generate_dashboard(log_file, log_format_file)
         elif choice == '10':
+            generate_received_bytes(log_file, log_format_file)
+        elif choice == '11':
+            generate_sent_bytes(log_file, log_format_file)
+        elif choice == '12':
             run_example_pipeline(log_file, log_format_file)
         else:
             print("Invalid choice. Please try again.")
@@ -372,6 +380,198 @@ def generate_dashboard(log_file, log_format_file):
         print(f"  Total transactions: {result['totalTransactions']}")
         print(f"  Output file: {result['filePath']}")
         print(f"\n  Open the HTML file in your browser to view the dashboard.")
+    except Exception as e:
+        print(f"✗ Error: {e}")
+
+
+def generate_received_bytes(log_file, log_format_file):
+    """Generate Received Bytes per URI visualization"""
+    print("\n--- Generate Received Bytes per URI ---")
+
+    # Check for existing pattern files in the same directory
+    log_file_path = Path(log_file)
+    log_dir = log_file_path.parent
+
+    # Look for pattern files (patterns_*.json)
+    pattern_files = []
+    try:
+        pattern_files = sorted(log_dir.glob('patterns_*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+    except Exception:
+        pass  # If directory doesn't exist or other error, continue without pattern files
+
+    patterns_file = None
+    if pattern_files:
+        print(f"\n  Found {len(pattern_files)} pattern file(s) in the directory:")
+        for i, pf in enumerate(pattern_files[:5], 1):  # Show up to 5 most recent
+            try:
+                # Try to read pattern count from file
+                import json
+                with open(pf, 'r', encoding='utf-8') as f:
+                    pattern_data = json.load(f)
+                    # Get pattern count from patternRules if available, otherwise from patterns (backward compatibility)
+                    if isinstance(pattern_data, dict):
+                        if 'patternRules' in pattern_data:
+                            pattern_count = len(pattern_data['patternRules'])
+                        else:
+                            pattern_count = len(pattern_data.get('patterns', []))
+                    else:
+                        pattern_count = len(pattern_data) if isinstance(pattern_data, list) else 0
+                    file_size = pf.stat().st_size
+                    print(f"    {i}. {pf.name} ({pattern_count} pattern rules, {file_size} bytes)")
+            except Exception:
+                print(f"    {i}. {pf.name}")
+
+        use_existing = input(f"\n  Use existing pattern file? (y/n, default: n): ").strip().lower()
+        if use_existing == 'y':
+            if len(pattern_files) == 1:
+                patterns_file = str(pattern_files[0])
+            else:
+                file_choice = input(f"  Select file number (1-{min(len(pattern_files), 5)}): ").strip()
+                try:
+                    file_idx = int(file_choice) - 1
+                    if 0 <= file_idx < len(pattern_files):
+                        patterns_file = str(pattern_files[file_idx])
+                    else:
+                        print(f"  Invalid selection, using most recent file: {pattern_files[0].name}")
+                        patterns_file = str(pattern_files[0])
+                except ValueError:
+                    print(f"  Invalid input, using most recent file: {pattern_files[0].name}")
+                    patterns_file = str(pattern_files[0])
+
+            if patterns_file:
+                print(f"  ✓ Using pattern file: {Path(patterns_file).name}")
+
+    # Get user preferences (only if not using existing pattern file)
+    if not patterns_file:
+        top_n_input = input("\nNumber of top URI patterns to display (default: 10): ").strip()
+        top_n = int(top_n_input) if top_n_input else 10
+    else:
+        # Pattern file will be used, but still ask for topN as it might be needed
+        top_n_input = input("\nNumber of top URI patterns to display (default: use all from file): ").strip()
+        top_n = int(top_n_input) if top_n_input else 10
+
+    interval_input = input("Time interval for aggregation (default: 10s, examples: 1s, 10s, 1min, 5min, 1h): ").strip()
+    interval = interval_input if interval_input else '10s'
+
+    try:
+        result = generateReceivedBytesPerURI(
+            log_file,
+            log_format_file,
+            'html',
+            topN=top_n,
+            interval=interval,
+            patternsFile=patterns_file
+        )
+        print(f"\n✓ Received Bytes chart generated:")
+        print(f"  Total transactions: {result['totalTransactions']}")
+        print(f"  Top N patterns: {result.get('topN', top_n)}")
+        print(f"  Interval: {result.get('interval', interval)}")
+        if result.get('patternsFile'):
+            print(f"  Patterns file: {result['patternsFile']}")
+        print(f"  Top Sum URIs: {len(result.get('topNSum', []))}")
+        print(f"  Top Avg URIs: {len(result.get('topNAvg', []))}")
+        print(f"  Output file: {result['filePath']}")
+        print(f"\n  Open the HTML file in your browser to view the interactive chart.")
+        print(f"  Features:")
+        print(f"    - Two charts: Sum Top N and Average Top N")
+        print(f"    - Time series visualization with interactive controls")
+        print(f"    - Use toolbar buttons for pan, zoom, reset, etc.")
+    except Exception as e:
+        print(f"✗ Error: {e}")
+
+
+def generate_sent_bytes(log_file, log_format_file):
+    """Generate Sent Bytes per URI visualization"""
+    print("\n--- Generate Sent Bytes per URI ---")
+
+    # Check for existing pattern files in the same directory
+    log_file_path = Path(log_file)
+    log_dir = log_file_path.parent
+
+    # Look for pattern files (patterns_*.json)
+    pattern_files = []
+    try:
+        pattern_files = sorted(log_dir.glob('patterns_*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+    except Exception:
+        pass  # If directory doesn't exist or other error, continue without pattern files
+
+    patterns_file = None
+    if pattern_files:
+        print(f"\n  Found {len(pattern_files)} pattern file(s) in the directory:")
+        for i, pf in enumerate(pattern_files[:5], 1):  # Show up to 5 most recent
+            try:
+                # Try to read pattern count from file
+                import json
+                with open(pf, 'r', encoding='utf-8') as f:
+                    pattern_data = json.load(f)
+                    # Get pattern count from patternRules if available, otherwise from patterns (backward compatibility)
+                    if isinstance(pattern_data, dict):
+                        if 'patternRules' in pattern_data:
+                            pattern_count = len(pattern_data['patternRules'])
+                        else:
+                            pattern_count = len(pattern_data.get('patterns', []))
+                    else:
+                        pattern_count = len(pattern_data) if isinstance(pattern_data, list) else 0
+                    file_size = pf.stat().st_size
+                    print(f"    {i}. {pf.name} ({pattern_count} pattern rules, {file_size} bytes)")
+            except Exception:
+                print(f"    {i}. {pf.name}")
+
+        use_existing = input(f"\n  Use existing pattern file? (y/n, default: n): ").strip().lower()
+        if use_existing == 'y':
+            if len(pattern_files) == 1:
+                patterns_file = str(pattern_files[0])
+            else:
+                file_choice = input(f"  Select file number (1-{min(len(pattern_files), 5)}): ").strip()
+                try:
+                    file_idx = int(file_choice) - 1
+                    if 0 <= file_idx < len(pattern_files):
+                        patterns_file = str(pattern_files[file_idx])
+                    else:
+                        print(f"  Invalid selection, using most recent file: {pattern_files[0].name}")
+                        patterns_file = str(pattern_files[0])
+                except ValueError:
+                    print(f"  Invalid input, using most recent file: {pattern_files[0].name}")
+                    patterns_file = str(pattern_files[0])
+
+            if patterns_file:
+                print(f"  ✓ Using pattern file: {Path(patterns_file).name}")
+
+    # Get user preferences (only if not using existing pattern file)
+    if not patterns_file:
+        top_n_input = input("\nNumber of top URI patterns to display (default: 10): ").strip()
+        top_n = int(top_n_input) if top_n_input else 10
+    else:
+        # Pattern file will be used, but still ask for topN as it might be needed
+        top_n_input = input("\nNumber of top URI patterns to display (default: use all from file): ").strip()
+        top_n = int(top_n_input) if top_n_input else 10
+
+    interval_input = input("Time interval for aggregation (default: 10s, examples: 1s, 10s, 1min, 5min, 1h): ").strip()
+    interval = interval_input if interval_input else '10s'
+
+    try:
+        result = generateSentBytesPerURI(
+            log_file,
+            log_format_file,
+            'html',
+            topN=top_n,
+            interval=interval,
+            patternsFile=patterns_file
+        )
+        print(f"\n✓ Sent Bytes chart generated:")
+        print(f"  Total transactions: {result['totalTransactions']}")
+        print(f"  Top N patterns: {result.get('topN', top_n)}")
+        print(f"  Interval: {result.get('interval', interval)}")
+        if result.get('patternsFile'):
+            print(f"  Patterns file: {result['patternsFile']}")
+        print(f"  Top Sum URIs: {len(result.get('topNSum', []))}")
+        print(f"  Top Avg URIs: {len(result.get('topNAvg', []))}")
+        print(f"  Output file: {result['filePath']}")
+        print(f"\n  Open the HTML file in your browser to view the interactive chart.")
+        print(f"  Features:")
+        print(f"    - Two charts: Sum Top N and Average Top N")
+        print(f"    - Time series visualization with interactive controls")
+        print(f"    - Use toolbar buttons for pan, zoom, reset, etc.")
     except Exception as e:
         print(f"✗ Error: {e}")
 
