@@ -115,11 +115,19 @@ AccesslogAnalyzer/
 **data_processor.py** - Filtering and Statistics
 - `filterByCondition(inputFile, logFormatFile, condition, params)`: Filters by time, status code, response time, client IP, URLs, or URI patterns
 - `extractUriPatterns(inputFile, logFormatFile, extractionType, params)`: Extracts unique URLs or generalized URI patterns (replaces IDs/UUIDs with `*`)
-- `calculateStats(inputFile, logFormatFile, params, use_multiprocessing, num_workers)`: Computes comprehensive statistics with parallel processing support (NEW)
+- `calculateStats(inputFile, logFormatFile, params, use_multiprocessing, num_workers)`: Computes comprehensive statistics with parallel processing support
   - **Parallel URL statistics**: Process multiple URL groups concurrently (>= 100 URLs)
   - **Parallel time-series stats**: Calculate time interval statistics in parallel (>= 100 intervals)
   - **Parallel IP statistics**: Process IP groups concurrently (>= 100 IPs)
   - **timeInterval parameter**: Supports flexible time interval formats (e.g., '1m', '10s', '1h')
+  - **processingTimeFields parameter** (NEW): Analyze multiple processing time fields simultaneously
+    - Supports: `request_processing_time`, `target_processing_time`, `response_processing_time`, etc.
+    - Calculates: avg, sum, median, std, min, max, p90, p95, p99 for each field
+  - **sortBy/sortMetric/topN parameters** (NEW): Get Top N URLs by specific metrics
+    - `sortBy`: Field to sort by (e.g., 'request_processing_time', 'target_processing_time')
+    - `sortMetric`: Metric to use ('avg', 'sum', 'median', 'p95', 'p99')
+    - `topN`: Return only top N results
+    - Example: Top 20 URLs by average request_processing_time
   - Automatically normalizes common abbreviations: '1m' → '1min', '30sec' → '30s'
   - Performance: ~2-3x faster for large datasets with many unique URLs/IPs
 - `PatternRulesManager` - Thread-safe pattern caching class (replaces global variables)
@@ -227,11 +235,31 @@ All filtered output uses JSON Lines (one JSON object per line):
 
 ### URI Pattern Generalization
 The `_generalize_url()` function intelligently replaces dynamic segments:
-- Pure numbers → `*`
-- UUIDs (8-4-4-4-12 format) → `*`
-- Long hex strings (16+ chars) → `*`
-- Mixed alphanumeric with >70% digits → `*`
-- Can use pattern rules from file for custom matching
+- **ID-like segments** → `*`
+  - Pure numbers → `*`
+  - UUIDs (8-4-4-4-12 format) → `*`
+  - Long hex strings (16+ chars) → `*`
+  - Mixed alphanumeric with >70% digits → `*`
+- **Static files** → categorized by extension
+  - `.css`, `.scss`, `.sass`, `.less` → `*.css`
+  - `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs` → `*.js`
+  - `.png`, `.jpg`, `.jpeg`, `.gif`, `.svg`, `.ico`, `.webp` → `*.image`
+  - `.woff`, `.woff2`, `.ttf`, `.otf`, `.eot` → `*.font`
+  - `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx` → `*.doc`
+  - `.mp4`, `.avi`, `.mov`, `.webm`, `.mkv` → `*.video`
+  - `.mp3`, `.wav`, `.ogg`, `.m4a` → `*.audio`
+  - `.html`, `.htm` → `*.html`
+  - `.json`, `.xml`, `.yaml`, `.yml`, `.csv`, `.txt` → `*.data`
+  - `.zip`, `.tar`, `.gz`, `.rar`, `.7z` → `*.archive`
+- **Custom patterns** → can use pattern rules from file for custom matching
+
+Example:
+```
+/assets/styles/main.css → /assets/styles/*.css
+/static/js/app.12345.js → /static/js/*.js
+/images/logo.png → /images/*.image
+/fonts/Roboto-Regular.woff2 → /fonts/*.font
+```
 
 ### Timezone Handling
 Filter by time supports both naive and timezone-aware timestamps:
@@ -538,8 +566,40 @@ calculateStats(file, format, params, use_multiprocessing=False)
 3. Calculate stats on filtered data
 4. Generate XLog for filtered timeframe
 
-### Top N Slow URLs
+### Top N Slow URLs (Legacy Method)
 1. Calculate stats: `calculateStats(file, format, 'statsType=url')`
 2. Parse `stats_*.json` to find top URLs by avg response time
 3. Create URL list and filter: `filterByCondition(file, format, 'urls', 'urlsFile=top5.json')`
 4. Generate XLog for slow URLs only
+
+### Top N URLs by Processing Time (NEW)
+Get top URLs by specific processing time metrics in a single command:
+
+```python
+# Top 20 URLs by average request_processing_time
+result = calculateStats(
+    'access.log.gz',
+    'logformat_*.json',
+    params='statsType=url;processingTimeFields=request_processing_time,target_processing_time,response_processing_time;sortBy=request_processing_time;sortMetric=avg;topN=20'
+)
+
+# Top 10 URLs by sum of target_processing_time
+result = calculateStats(
+    'access.log.gz',
+    'logformat_*.json',
+    params='statsType=url;processingTimeFields=target_processing_time;sortBy=target_processing_time;sortMetric=sum;topN=10'
+)
+
+# Top 15 URLs by p95 response_processing_time
+result = calculateStats(
+    'access.log.gz',
+    'logformat_*.json',
+    params='statsType=url;processingTimeFields=response_processing_time;sortBy=response_processing_time;sortMetric=p95;topN=15'
+)
+```
+
+Output includes:
+- URL statistics for all specified processing time fields
+- Each field shows: avg, sum, median, std, min, max, p90, p95, p99
+- Results automatically sorted and limited to top N
+- Summary text with processing time details

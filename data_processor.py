@@ -764,54 +764,177 @@ def _load_pattern_rules(patterns_file: Optional[str] = None) -> Optional[List[Di
 def _generalize_url(url, patterns_file=None):
     """
     Generalize URL by replacing path variables with * or using pattern rules from file.
-    
+
+    Static files are categorized by extension:
+    - .css → *.css
+    - .js, .jsx, .ts, .tsx, .mjs → *.js
+    - .png, .jpg, .jpeg, .gif, .svg, .ico, .webp, .bmp → *.image
+    - .woff, .woff2, .ttf, .otf, .eot → *.font
+    - .pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx → *.doc
+    - .mp4, .avi, .mov, .webm, .mkv → *.video
+    - .mp3, .wav, .ogg, .m4a → *.audio
+    - .html, .htm → *.html
+    - .json, .xml, .yaml, .yml → *.data
+    - .zip, .tar, .gz, .rar, .7z → *.archive
+
     Args:
         url: URL string to generalize
         patterns_file: Optional path to pattern file with regex rules
-    
+
     Returns:
         Generalized URL pattern
     """
     if not url:
         return url
-    
+
     # Load pattern rules if file is provided
     pattern_rules = _load_pattern_rules(patterns_file) if patterns_file else None
-    
+
     # Try pattern rules first
     if pattern_rules:
         for rule in pattern_rules:
             if rule['pattern'].match(url):
                 return rule['replacement']
-    
+
     # Fallback to default generalization
     # Split into path and query
     parts = url.split('?')
     path = parts[0]
-    
+
     # Split path into segments
     segments = path.split('/')
-    
+
     # Generalize each segment
     generalized = []
-    for segment in segments:
+    for i, segment in enumerate(segments):
         if not segment:
             generalized.append(segment)
             continue
-        
+
+        # Check if this is the last segment (potential filename)
+        is_last_segment = (i == len(segments) - 1)
+
+        # Check if segment is a static file
+        if is_last_segment:
+            static_category = _categorize_static_file(segment)
+            if static_category:
+                generalized.append(static_category)
+                continue
+
         # Check if segment looks like an ID
         if _is_id_like(segment):
             generalized.append('*')
         else:
             generalized.append(segment)
-    
+
     result = '/'.join(generalized)
-    
+
     # Append query placeholder if present
     if len(parts) > 1:
         result += '?*'
-    
+
     return result
+
+
+def _categorize_static_file(filename: str) -> Optional[str]:
+    """
+    Categorize static files by extension.
+
+    Args:
+        filename: Filename or path segment
+
+    Returns:
+        Category string (e.g., '*.css', '*.js', '*.image') or None if not a static file
+    """
+    if not filename or '.' not in filename:
+        return None
+
+    # Extract extension (lowercase)
+    extension = filename.rsplit('.', 1)[-1].lower()
+
+    # Define static file categories
+    static_categories = {
+        # Styles
+        'css': '*.css',
+        'scss': '*.css',
+        'sass': '*.css',
+        'less': '*.css',
+
+        # Scripts
+        'js': '*.js',
+        'jsx': '*.js',
+        'ts': '*.js',
+        'tsx': '*.js',
+        'mjs': '*.js',
+        'cjs': '*.js',
+
+        # Images
+        'png': '*.image',
+        'jpg': '*.image',
+        'jpeg': '*.image',
+        'gif': '*.image',
+        'svg': '*.image',
+        'ico': '*.image',
+        'webp': '*.image',
+        'bmp': '*.image',
+        'tif': '*.image',
+        'tiff': '*.image',
+
+        # Fonts
+        'woff': '*.font',
+        'woff2': '*.font',
+        'ttf': '*.font',
+        'otf': '*.font',
+        'eot': '*.font',
+
+        # Documents
+        'pdf': '*.doc',
+        'doc': '*.doc',
+        'docx': '*.doc',
+        'xls': '*.doc',
+        'xlsx': '*.doc',
+        'ppt': '*.doc',
+        'pptx': '*.doc',
+
+        # Videos
+        'mp4': '*.video',
+        'avi': '*.video',
+        'mov': '*.video',
+        'webm': '*.video',
+        'mkv': '*.video',
+        'flv': '*.video',
+        'wmv': '*.video',
+
+        # Audio
+        'mp3': '*.audio',
+        'wav': '*.audio',
+        'ogg': '*.audio',
+        'm4a': '*.audio',
+        'flac': '*.audio',
+        'aac': '*.audio',
+
+        # Markup
+        'html': '*.html',
+        'htm': '*.html',
+
+        # Data formats
+        'json': '*.data',
+        'xml': '*.data',
+        'yaml': '*.data',
+        'yml': '*.data',
+        'csv': '*.data',
+        'txt': '*.data',
+
+        # Archives
+        'zip': '*.archive',
+        'tar': '*.archive',
+        'gz': '*.archive',
+        'rar': '*.archive',
+        '7z': '*.archive',
+        'bz2': '*.archive',
+    }
+
+    return static_categories.get(extension)
 
 
 def _is_id_like(segment):
@@ -819,19 +942,19 @@ def _is_id_like(segment):
     # Pure numbers
     if segment.isdigit():
         return True
-    
+
     # UUID pattern
     if re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', segment, re.I):
         return True
-    
+
     # Long hex strings
     if re.match(r'^[0-9a-f]{16,}$', segment, re.I):
         return True
-    
+
     # Mixed alphanumeric that's mostly numbers
     if len(segment) > 8 and sum(c.isdigit() for c in segment) / len(segment) > 0.7:
         return True
-    
+
     return False
 
 
@@ -952,14 +1075,15 @@ def filterUriPatterns(urisFile: str, params: str = '') -> Dict[str, Any]:
 # Parallel Processing Helper Functions
 # ============================================================================
 
-def _calculate_url_stats_chunk(url_group_data, status_field, rt_field):
+def _calculate_url_stats_chunk(url_group_data, status_field, rt_field, processing_time_fields=None):
     """
     Calculate statistics for a chunk of URL groups in parallel worker.
 
     Args:
         url_group_data: List of (url, group_df) tuples
         status_field: Status code field name
-        rt_field: Response time field name
+        rt_field: Response time field name (legacy, kept for backward compatibility)
+        processing_time_fields: List of processing time field names to analyze
 
     Returns:
         List of URL statistics dicts
@@ -977,12 +1101,13 @@ def _calculate_url_stats_chunk(url_group_data, status_field, rt_field):
             status_counts = group[status_field].value_counts().to_dict()
             stat['statusCodes'] = {str(k): int(v) for k, v in status_counts.items() if pd.notna(k)}
 
-        # Response time statistics
-        if rt_field in group.columns:
+        # Response time statistics (legacy field)
+        if rt_field and rt_field in group.columns:
             rt_data = group[rt_field].dropna()
             if not rt_data.empty:
                 stat['responseTime'] = {
                     'avg': float(rt_data.mean()),
+                    'sum': float(rt_data.sum()),
                     'median': float(rt_data.median()),
                     'std': float(rt_data.std()),
                     'min': float(rt_data.min()),
@@ -991,6 +1116,25 @@ def _calculate_url_stats_chunk(url_group_data, status_field, rt_field):
                     'p95': float(rt_data.quantile(0.95)),
                     'p99': float(rt_data.quantile(0.99))
                 }
+
+        # Multiple processing time fields statistics
+        if processing_time_fields:
+            for field_name in processing_time_fields:
+                if field_name in group.columns:
+                    field_data = pd.to_numeric(group[field_name], errors='coerce').dropna()
+                    if not field_data.empty:
+                        # Use field name as key (e.g., 'request_processing_time', 'target_processing_time')
+                        stat[field_name] = {
+                            'avg': float(field_data.mean()),
+                            'sum': float(field_data.sum()),
+                            'median': float(field_data.median()),
+                            'std': float(field_data.std()),
+                            'min': float(field_data.min()),
+                            'max': float(field_data.max()),
+                            'p90': float(field_data.quantile(0.9)),
+                            'p95': float(field_data.quantile(0.95)),
+                            'p99': float(field_data.quantile(0.99))
+                        }
 
         url_stats.append(stat)
 
@@ -1084,31 +1228,60 @@ def calculateStats(
 ) -> Dict[str, Any]:
     """
     Calculate statistics from access log.
-    
+
     Args:
         inputFile (str): Input log file path
         logFormatFile (str): Log format JSON file path
-        params (str): Parameters (statsType, timeInterval)
+        params (str): Parameters
             - statsType: 'all', 'summary', 'url', 'time', 'ip' (comma-separated)
             - timeInterval: '1h', '30m', '10m', '5m', '1m'
-        
+            - processingTimeFields: Comma-separated list of processing time fields to analyze
+                (e.g., 'request_processing_time,target_processing_time,response_processing_time')
+            - sortBy: Field name to sort URL stats by (e.g., 'request_processing_time', 'target_processing_time', 'count')
+            - sortMetric: Metric to use for sorting ('avg', 'sum', 'median', 'p95', 'p99') - default: 'avg'
+            - topN: Return only top N URLs (e.g., '20', '50')
+        use_multiprocessing (bool): Enable parallel processing
+        num_workers (int): Number of workers for parallel processing
+
     Returns:
         dict: {
             'filePath': str (absolute path to stats_*.json),
             'summary': str
         }
+
+    Examples:
+        # Get top 20 URLs by average request_processing_time
+        calculateStats(
+            'access.log.gz', 'format.json',
+            params='statsType=url;processingTimeFields=request_processing_time,target_processing_time;sortBy=request_processing_time;sortMetric=avg;topN=20'
+        )
+
+        # Get top 10 URLs by sum of target_processing_time
+        calculateStats(
+            'access.log.gz', 'format.json',
+            params='statsType=url;processingTimeFields=target_processing_time;sortBy=target_processing_time;sortMetric=sum;topN=10'
+        )
     """
     # Validate inputs
     if not inputFile or not os.path.exists(inputFile):
         raise ValueError(f"Input file not found: {inputFile}")
     if not logFormatFile or not os.path.exists(logFormatFile):
         raise ValueError(f"Log format file not found: {logFormatFile}")
-    
+
     # Parse parameters
     param_dict = _parse_params(params)
     stats_types = param_dict.get('statsType', 'all').split(',')
     stats_types = [s.strip() for s in stats_types]
     time_interval = param_dict.get('timeInterval', '10m')
+
+    # Parse processing time fields
+    processing_time_fields_str = param_dict.get('processingTimeFields', '')
+    processing_time_fields = [f.strip() for f in processing_time_fields_str.split(',') if f.strip()] if processing_time_fields_str else None
+
+    # Parse sorting parameters
+    sort_by = param_dict.get('sortBy', '')
+    sort_metric = param_dict.get('sortMetric', 'avg')
+    top_n = int(param_dict.get('topN', '0')) if param_dict.get('topN') else None
     
     # Expand 'all' to include everything
     if 'all' in stats_types:
@@ -1139,7 +1312,14 @@ def calculateStats(
         log_df[status_field] = pd.to_numeric(log_df[status_field], errors='coerce')
     if rt_field in log_df.columns:
         log_df[rt_field] = pd.to_numeric(log_df[rt_field], errors='coerce')
-    
+
+    # Convert processing time fields to numeric
+    if processing_time_fields:
+        for field in processing_time_fields:
+            if field in log_df.columns:
+                log_df[field] = pd.to_numeric(log_df[field], errors='coerce')
+                logger.info(f"Converted {field} to numeric type")
+
     # Calculate statistics
     result = {}
 
@@ -1147,7 +1327,18 @@ def calculateStats(
         result['summary'] = _calculate_summary_stats(log_df, url_field, ip_field, status_field, rt_field)
 
     if 'url' in stats_types:
-        result['urlStats'] = _calculate_url_stats(log_df, url_field, status_field, rt_field, use_multiprocessing, num_workers)
+        result['urlStats'] = _calculate_url_stats(
+            log_df,
+            url_field,
+            status_field,
+            rt_field,
+            use_multiprocessing,
+            num_workers,
+            processing_time_fields,
+            sort_by,
+            sort_metric,
+            top_n
+        )
 
     if 'time' in stats_types:
         result['timeStats'] = _calculate_time_stats(log_df, time_field, status_field, rt_field, time_interval, use_multiprocessing, num_workers)
@@ -1206,8 +1397,36 @@ def _calculate_summary_stats(log_df, url_field, ip_field, status_field, rt_field
     return stats
 
 
-def _calculate_url_stats(log_df, url_field, status_field, rt_field, use_multiprocessing=True, num_workers=None):
-    """Calculate per-URL statistics with optional parallel processing"""
+def _calculate_url_stats(
+    log_df,
+    url_field,
+    status_field,
+    rt_field,
+    use_multiprocessing=True,
+    num_workers=None,
+    processing_time_fields=None,
+    sort_by=None,
+    sort_metric='avg',
+    top_n=None
+):
+    """
+    Calculate per-URL statistics with optional parallel processing.
+
+    Args:
+        log_df: DataFrame with log data
+        url_field: URL field name
+        status_field: Status code field name
+        rt_field: Response time field name (legacy)
+        use_multiprocessing: Enable parallel processing
+        num_workers: Number of workers
+        processing_time_fields: List of processing time field names to analyze
+        sort_by: Field name to sort by (e.g., 'request_processing_time', 'target_processing_time')
+        sort_metric: Metric to sort by ('avg', 'sum', 'median', 'p95', 'p99')
+        top_n: Return only top N results
+
+    Returns:
+        List of URL statistics dicts
+    """
     if url_field not in log_df.columns:
         return []
 
@@ -1232,7 +1451,12 @@ def _calculate_url_stats(log_df, url_field, status_field, rt_field, use_multipro
         chunks = [group_list[i:i + chunk_size] for i in range(0, len(group_list), chunk_size)]
 
         # Process in parallel
-        worker_fn = partial(_calculate_url_stats_chunk, status_field=status_field, rt_field=rt_field)
+        worker_fn = partial(
+            _calculate_url_stats_chunk,
+            status_field=status_field,
+            rt_field=rt_field,
+            processing_time_fields=processing_time_fields
+        )
 
         with Pool(processes=num_workers) as pool:
             results = pool.map(worker_fn, chunks)
@@ -1249,11 +1473,30 @@ def _calculate_url_stats(log_df, url_field, status_field, rt_field, use_multipro
         url_stats = _calculate_url_stats_chunk(
             [(url, group) for url, group in url_groups],
             status_field,
-            rt_field
+            rt_field,
+            processing_time_fields
         )
 
-    # Sort by count (descending)
-    url_stats.sort(key=lambda x: x['count'], reverse=True)
+    # Apply sorting
+    if sort_by and sort_metric:
+        # Sort by specified field and metric
+        def get_sort_key(stat):
+            if sort_by in stat and isinstance(stat[sort_by], dict) and sort_metric in stat[sort_by]:
+                return stat[sort_by][sort_metric]
+            elif sort_by == 'count':
+                return stat.get('count', 0)
+            return 0
+
+        url_stats.sort(key=get_sort_key, reverse=True)
+        logger.info(f"Sorted by {sort_by}.{sort_metric}")
+    else:
+        # Default: sort by count
+        url_stats.sort(key=lambda x: x['count'], reverse=True)
+
+    # Apply top N limit
+    if top_n and top_n > 0:
+        url_stats = url_stats[:top_n]
+        logger.info(f"Limited to top {top_n} URLs")
 
     return url_stats
 
@@ -1371,32 +1614,47 @@ def _calculate_ip_stats(log_df, ip_field, status_field, rt_field, use_multiproce
 def _generate_summary_text(result, stats_types):
     """Generate summary text from statistics"""
     lines = []
-    
+
     if 'summary' in result:
         summary = result['summary']
         lines.append(f"Total Requests: {summary['totalRequests']}")
         lines.append(f"Unique URLs: {summary['uniqueUrls']}")
         lines.append(f"Unique IPs: {summary['uniqueIps']}")
-        
+
         if 'responseTime' in summary:
             rt = summary['responseTime']
             lines.append(f"Avg Response Time: {rt['avg']:.3f}")
             lines.append(f"P95 Response Time: {rt['p95']:.3f}")
             lines.append(f"P99 Response Time: {rt['p99']:.3f}")
-    
+
     if 'urlStats' in result:
         lines.append(f"\nTotal URL Patterns: {len(result['urlStats'])}")
         if result['urlStats']:
-            lines.append("\nTop 5 URLs by Request Count:")
+            # Show top 5 URLs with processing time details if available
+            lines.append("\nTop URLs:")
             for i, stat in enumerate(result['urlStats'][:5], 1):
-                lines.append(f"  {i}. {stat['url']} ({stat['count']} requests)")
-    
+                url_info = f"  {i}. {stat['url']} ({stat['count']} requests)"
+
+                # Add processing time info if available
+                time_details = []
+                for field in ['request_processing_time', 'target_processing_time', 'response_processing_time']:
+                    if field in stat and isinstance(stat[field], dict):
+                        avg_val = stat[field].get('avg', 0)
+                        sum_val = stat[field].get('sum', 0)
+                        field_short = field.replace('_processing_time', '')
+                        time_details.append(f"{field_short}: avg={avg_val:.3f}, sum={sum_val:.3f}")
+
+                if time_details:
+                    url_info += f"\n      {', '.join(time_details)}"
+
+                lines.append(url_info)
+
     if 'timeStats' in result:
         lines.append(f"\nTime Intervals: {len(result['timeStats'])}")
-    
+
     if 'ipStats' in result:
         lines.append(f"\nUnique IPs: {len(result['ipStats'])}")
-    
+
     return '\n'.join(lines)
 
 
