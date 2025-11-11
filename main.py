@@ -249,6 +249,38 @@ def calculate_statistics(log_file, log_format_file):
     if time_interval:
         params.append(f"timeInterval={time_interval}")
 
+    # Ask if user wants to analyze processing time fields
+    print("\n--- Processing Time Analysis (Optional) ---")
+    analyze_processing = input("Analyze processing time fields? (y/n, default: n): ").strip().lower()
+
+    if analyze_processing == 'y':
+        print("\nAvailable fields (comma-separated):")
+        print("  - request_processing_time")
+        print("  - target_processing_time")
+        print("  - response_processing_time")
+        print("  - Or any custom processing time field in your logs")
+
+        proc_fields = input("\nProcessing time fields (default: all three above): ").strip()
+        if not proc_fields:
+            proc_fields = "request_processing_time,target_processing_time,response_processing_time"
+        params.append(f"processingTimeFields={proc_fields}")
+
+        # Ask for sorting preferences
+        print("\n--- Sorting & Top N (Optional) ---")
+        sort_by = input("Sort by field (e.g., request_processing_time, target_processing_time, or empty to skip): ").strip()
+        if sort_by:
+            params.append(f"sortBy={sort_by}")
+
+            print("\nAvailable metrics: avg, sum, median, p95, p99")
+            sort_metric = input("Sort metric (default: avg): ").strip()
+            if not sort_metric:
+                sort_metric = "avg"
+            params.append(f"sortMetric={sort_metric}")
+
+            top_n = input("Top N URLs to return (e.g., 20, 50, or empty for all): ").strip()
+            if top_n:
+                params.append(f"topN={top_n}")
+
     params_str = ';'.join(params) if params else ''
 
     try:
@@ -580,48 +612,56 @@ def run_example_pipeline(log_file, log_format_file):
     """
     Run example pipeline demonstrating tool chaining.
 
-    Example: "Extract top 5 URLs by average response time and generate XLog"
+    Example: "Extract top 5 URLs by processing time and generate XLog"
 
     Pipeline:
-    1. Calculate URL statistics
-    2. Extract top 5 URLs by avg response time
+    1. Calculate URL statistics with processing time analysis
+    2. Extract top 5 URLs by avg target_processing_time (using new feature)
     3. Filter log by those URLs
     4. Generate XLog for filtered data
     """
     print("\n" + "="*70)
-    print("Example Pipeline: Top 5 URLs by Response Time → XLog")
+    print("Example Pipeline: Top 5 URLs by Processing Time → XLog")
     print("="*70)
 
     try:
-        # Step 1: Calculate statistics
-        print("\n[1/4] Calculating statistics...")
-        stats_result = calculateStats(log_file, log_format_file, 'statsType=url')
+        # Step 1: Calculate statistics with processing time analysis (NEW)
+        print("\n[1/4] Calculating statistics with processing time analysis...")
+        print("  Using new processingTimeFields feature!")
+        stats_result = calculateStats(
+            log_file,
+            log_format_file,
+            'statsType=url;processingTimeFields=request_processing_time,target_processing_time,response_processing_time;sortBy=target_processing_time;sortMetric=avg;topN=5'
+        )
         print(f"  ✓ Stats file: {stats_result['filePath']}")
 
         # Step 2: Read statistics and extract top 5 URLs
-        print("\n[2/4] Extracting top 5 URLs by avg response time...")
+        print("\n[2/4] Extracting top 5 URLs by avg target_processing_time...")
         import json
         with open(stats_result['filePath'], 'r', encoding='utf-8') as f:
             stats = json.load(f)
 
         url_stats = stats.get('urlStats', [])
-        # Sort by avg response time (descending)
-        url_stats_sorted = sorted(
-            [s for s in url_stats if 'responseTime' in s],
-            key=lambda x: x['responseTime']['avg'],
-            reverse=True
-        )[:5]
 
-        top_urls = [s['url'] for s in url_stats_sorted]
-
-        if not top_urls:
-            print("  ✗ No URLs with response time data found.")
+        if not url_stats:
+            print("  ✗ No URL statistics found.")
             return
 
-        print(f"  ✓ Top 5 URLs:")
-        for i, url in enumerate(top_urls, 1):
-            avg_rt = next(s['responseTime']['avg'] for s in url_stats_sorted if s['url'] == url)
-            print(f"    {i}. {url} (avg: {avg_rt:.2f})")
+        # URLs are already sorted by target_processing_time avg (thanks to new feature)
+        top_urls = [s['url'] for s in url_stats[:5]]
+
+        print(f"  ✓ Top 5 URLs by avg target_processing_time:")
+        for i, stat in enumerate(url_stats[:5], 1):
+            url = stat['url']
+            count = stat.get('count', 0)
+
+            # Show processing time details if available
+            if 'target_processing_time' in stat:
+                tpt = stat['target_processing_time']
+                print(f"    {i}. {url} (count: {count})")
+                print(f"       target_processing_time: avg={tpt.get('avg', 0):.4f}s, p95={tpt.get('p95', 0):.4f}s")
+            else:
+                print(f"    {i}. {url} (count: {count})")
 
         # Step 3: Create URLs file and filter
         print("\n[3/4] Filtering log by top 5 URLs...")
@@ -651,6 +691,8 @@ def run_example_pipeline(log_file, log_format_file):
         print(f"  - Filtered log: {filter_result['filePath']}")
         print(f"  - XLog: {xlog_result['filePath']}")
         print(f"\nOpen the XLog HTML file to view the visualization.")
+        print(f"\nNote: This pipeline used the NEW processing time analysis feature")
+        print(f"      to get Top 5 URLs by target_processing_time in a single command!")
 
     except Exception as e:
         print(f"\n✗ Pipeline error: {e}")
