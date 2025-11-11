@@ -139,6 +139,11 @@ AccesslogAnalyzer/
   - **interval parameter**: Supports flexible time interval formats (e.g., '1m', '10s', '1h')
   - Automatically normalizes common abbreviations: '1m' → '1min', '30sec' → '30s'
   - Supported units: s (seconds), min (minutes), h (hours), d (days)
+- `generateProcessingTimePerURI(inputFile, logFormatFile, outputFormat, processingTimeField, metric, topN, interval, patternsFile)`: Time-series visualization of processing time per URI pattern (NEW)
+  - **processingTimeField**: Field to analyze (request_processing_time, target_processing_time, response_processing_time)
+  - **metric**: Metric to calculate (avg, median, p95, p99, max)
+  - Extracts top N patterns by total processing time
+  - Interactive time-series chart with zoom, pan, and range slider
 - `generateMultiMetricDashboard(inputFile, logFormatFile, outputFormat)`: Creates comprehensive 3-panel dashboard
 - `_normalize_interval(interval)`: Helper function to normalize time interval strings to pandas-compatible format
 - All visualizations use Plotly with CDN for interactivity

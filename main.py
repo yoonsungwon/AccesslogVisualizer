@@ -29,7 +29,8 @@ from data_visualizer import (
     generateRequestPerURI,
     generateMultiMetricDashboard,
     generateReceivedBytesPerURI,
-    generateSentBytesPerURI
+    generateSentBytesPerURI,
+    generateProcessingTimePerURI
 )
 
 
@@ -87,11 +88,12 @@ def interactive_menu(log_file=None):
         print("  9. Generate Dashboard")
         print("  10. Generate Received Bytes per URI (Sum & Average)")
         print("  11. Generate Sent Bytes per URI (Sum & Average)")
-        print("  12. Run example pipeline")
+        print("  12. Generate Processing Time per URI (NEW)")
+        print("  13. Run example pipeline")
         print("  0. Exit")
         print("="*70)
 
-        choice = input("\nSelect operation (0-12): ").strip()
+        choice = input("\nSelect operation (0-13): ").strip()
 
         if choice == '0':
             print("\nExiting. Goodbye!")
@@ -119,6 +121,8 @@ def interactive_menu(log_file=None):
         elif choice == '11':
             generate_sent_bytes(log_file, log_format_file)
         elif choice == '12':
+            generate_processing_time(log_file, log_format_file)
+        elif choice == '13':
             run_example_pipeline(log_file, log_format_file)
         else:
             print("Invalid choice. Please try again.")
@@ -604,6 +608,140 @@ def generate_sent_bytes(log_file, log_format_file):
         print(f"    - Two charts: Sum Top N and Average Top N")
         print(f"    - Time series visualization with interactive controls")
         print(f"    - Use toolbar buttons for pan, zoom, reset, etc.")
+    except Exception as e:
+        print(f"✗ Error: {e}")
+
+
+def generate_processing_time(log_file, log_format_file):
+    """Generate Processing Time per URI visualization"""
+    print("\n--- Generate Processing Time per URI ---")
+
+    # Select processing time field
+    print("\nSelect processing time field:")
+    print("  1. request_processing_time")
+    print("  2. target_processing_time (default)")
+    print("  3. response_processing_time")
+    field_choice = input("Field number (1-3, default: 2): ").strip()
+
+    field_map = {
+        '1': 'request_processing_time',
+        '2': 'target_processing_time',
+        '3': 'response_processing_time',
+        '': 'target_processing_time'  # default
+    }
+
+    processing_time_field = field_map.get(field_choice, 'target_processing_time')
+    print(f"  ✓ Selected field: {processing_time_field}")
+
+    # Select metric
+    print("\nSelect metric:")
+    print("  1. avg - Average (default)")
+    print("  2. median - Median")
+    print("  3. p95 - 95th Percentile")
+    print("  4. p99 - 99th Percentile")
+    print("  5. max - Maximum")
+    metric_choice = input("Metric number (1-5, default: 1): ").strip()
+
+    metric_map = {
+        '1': 'avg',
+        '2': 'median',
+        '3': 'p95',
+        '4': 'p99',
+        '5': 'max',
+        '': 'avg'  # default
+    }
+
+    metric = metric_map.get(metric_choice, 'avg')
+    print(f"  ✓ Selected metric: {metric}")
+
+    # Check for existing pattern files
+    log_file_path = Path(log_file)
+    log_dir = log_file_path.parent
+
+    pattern_files = []
+    try:
+        pattern_files = sorted(log_dir.glob('patterns_*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+    except Exception:
+        pass
+
+    patterns_file = None
+    if pattern_files:
+        print(f"\n  Found {len(pattern_files)} pattern file(s) in the directory:")
+        for i, pf in enumerate(pattern_files[:5], 1):
+            try:
+                import json
+                with open(pf, 'r', encoding='utf-8') as f:
+                    pattern_data = json.load(f)
+                    if isinstance(pattern_data, dict):
+                        if 'patternRules' in pattern_data:
+                            pattern_count = len(pattern_data['patternRules'])
+                        else:
+                            pattern_count = len(pattern_data.get('patterns', []))
+                    else:
+                        pattern_count = len(pattern_data) if isinstance(pattern_data, list) else 0
+                    file_size = pf.stat().st_size
+                    print(f"    {i}. {pf.name} ({pattern_count} pattern rules, {file_size} bytes)")
+            except Exception:
+                print(f"    {i}. {pf.name}")
+
+        use_existing = input(f"\n  Use existing pattern file? (y/n, default: n): ").strip().lower()
+        if use_existing == 'y':
+            if len(pattern_files) == 1:
+                patterns_file = str(pattern_files[0])
+            else:
+                file_choice = input(f"  Select file number (1-{min(len(pattern_files), 5)}): ").strip()
+                try:
+                    file_idx = int(file_choice) - 1
+                    if 0 <= file_idx < len(pattern_files):
+                        patterns_file = str(pattern_files[file_idx])
+                    else:
+                        print(f"  Invalid selection, using most recent file: {pattern_files[0].name}")
+                        patterns_file = str(pattern_files[0])
+                except ValueError:
+                    print(f"  Invalid input, using most recent file: {pattern_files[0].name}")
+                    patterns_file = str(pattern_files[0])
+
+            if patterns_file:
+                print(f"  ✓ Using pattern file: {Path(patterns_file).name}")
+
+    # Get user preferences
+    if not patterns_file:
+        top_n_input = input("\nNumber of top URI patterns to display (default: 10): ").strip()
+        top_n = int(top_n_input) if top_n_input else 10
+    else:
+        top_n_input = input("\nNumber of top URI patterns to display (default: use all from file): ").strip()
+        top_n = int(top_n_input) if top_n_input else 10
+
+    interval_input = input("Time interval for aggregation (default: 1min, examples: 1s, 10s, 1min, 5min, 1h): ").strip()
+    interval = interval_input if interval_input else '1min'
+
+    try:
+        result = generateProcessingTimePerURI(
+            log_file,
+            log_format_file,
+            'html',
+            processingTimeField=processing_time_field,
+            metric=metric,
+            topN=top_n,
+            interval=interval,
+            patternsFile=patterns_file
+        )
+        print(f"\n✓ Processing Time chart generated:")
+        print(f"  Total transactions: {result['totalTransactions']}")
+        print(f"  Processing time field: {result['processingTimeField']}")
+        print(f"  Metric: {result['metric']}")
+        print(f"  Top N patterns: {result.get('topN', top_n)}")
+        print(f"  Interval: {result.get('interval', interval)}")
+        if result.get('patternsFile'):
+            print(f"  Patterns file: {result['patternsFile']}")
+        print(f"  Patterns displayed: {result.get('patternsDisplayed', top_n)}")
+        print(f"  Output file: {result['filePath']}")
+        print(f"\n  Open the HTML file in your browser to view the interactive chart.")
+        print(f"  Features:")
+        print(f"    - Time series visualization of processing time per URI pattern")
+        print(f"    - Interactive legend to show/hide patterns")
+        print(f"    - Drag to zoom, use toolbar for pan, reset, etc.")
+        print(f"    - Range slider for time navigation")
     except Exception as e:
         print(f"✗ Error: {e}")
 

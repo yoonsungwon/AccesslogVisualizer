@@ -3154,6 +3154,334 @@ def _create_pivot_facet_chart(pivot_df, title, row_field, column_field, value_fi
     return fig
 
 
+# ============================================================================
+# MCP Tool: generateProcessingTimePerURI
+# ============================================================================
+
+def generateProcessingTimePerURI(
+    inputFile: str,
+    logFormatFile: str,
+    outputFormat: str = 'html',
+    processingTimeField: str = 'target_processing_time',
+    metric: str = 'avg',
+    topN: int = 10,
+    interval: str = '1min',
+    patternsFile: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generate Processing Time per URI time-series visualization.
+
+    Args:
+        inputFile (str): Input log file path
+        logFormatFile (str): Log format JSON file path
+        outputFormat (str): Output format ('html' only supported)
+        processingTimeField (str): Processing time field to analyze
+            - 'request_processing_time'
+            - 'target_processing_time' (default)
+            - 'response_processing_time'
+        metric (str): Metric to calculate (default: 'avg')
+            - 'avg': Average processing time
+            - 'median': Median processing time
+            - 'p95': 95th percentile
+            - 'p99': 99th percentile
+            - 'max': Maximum processing time
+        topN (int): Number of top URI patterns to display (default: 10)
+        interval (str): Time interval for aggregation (default: '1min').
+                       Examples: '1s', '10s', '1min', '5min', '1h'
+        patternsFile (str, optional): Path to JSON file containing URL patterns.
+                                    If provided, uses these patterns for visualization.
+                                    If not provided, extracts top N patterns by processing time.
+
+    Returns:
+        dict: {
+            'filePath': str (proctime_*.html),
+            'totalTransactions': int,
+            'patternsFile': str (path to saved patterns file),
+            'processingTimeField': str,
+            'metric': str
+        }
+    """
+    if outputFormat != 'html':
+        raise ValueError("Only 'html' output format is currently supported")
+
+    # Validate metric
+    valid_metrics = ['avg', 'median', 'p95', 'p99', 'max']
+    if metric not in valid_metrics:
+        raise ValidationError('metric', f"Invalid metric: {metric}. Must be one of: {valid_metrics}")
+
+    # Normalize interval parameter to pandas-compatible format
+    interval = _normalize_interval(interval)
+
+    # Load log format
+    with open(logFormatFile, 'r', encoding='utf-8') as f:
+        format_info = json.load(f)
+
+    # Parse log file
+    from data_parser import parse_log_file_with_format
+    log_df = parse_log_file_with_format(inputFile, logFormatFile)
+
+    if log_df.empty:
+        raise ValueError("No data to visualize")
+
+    # Get field mappings
+    time_field = format_info['fieldMap'].get('timestamp', 'time')
+    url_field = format_info['fieldMap'].get('url', 'request_url')
+
+    # Check if processing time field exists
+    if processingTimeField not in log_df.columns:
+        raise ValueError(f"Processing time field '{processingTimeField}' not found in DataFrame. Available columns: {list(log_df.columns)[:20]}...")
+
+    # Convert types
+    log_df[time_field] = pd.to_datetime(log_df[time_field], errors='coerce')
+    log_df[processingTimeField] = pd.to_numeric(log_df[processingTimeField], errors='coerce')
+    log_df = log_df.dropna(subset=[time_field, processingTimeField])
+
+    logger.info(f"Loaded {len(log_df)} records with valid {processingTimeField}")
+
+    # Determine input path for output file location
+    input_path = Path(inputFile)
+
+    # Load patterns from file if provided
+    patterns_file_for_generalize = None
+    top_patterns = None
+
+    if patternsFile and os.path.exists(patternsFile):
+        # Load patterns from file
+        try:
+            with open(patternsFile, 'r', encoding='utf-8') as f:
+                patterns_data = json.load(f)
+
+            # Extract pattern rules from file
+            if isinstance(patterns_data, dict):
+                if 'patternRules' in patterns_data and isinstance(patterns_data['patternRules'], list):
+                    patterns_file_for_generalize = patternsFile
+                    # Extract replacement values from patternRules as top_patterns
+                    top_patterns = [rule.get('replacement', '') for rule in patterns_data['patternRules'] if isinstance(rule, dict) and 'replacement' in rule]
+                    top_patterns = [p for p in top_patterns if p]  # Remove empty strings
+                    logger.info(f"Using pattern rules from {patternsFile} for URL generalization")
+                    logger.info(f"Loaded {len(top_patterns)} patterns from patternRules")
+                else:
+                    # Fallback for old format
+                    if 'patterns' in patterns_data:
+                        top_patterns = patterns_data['patterns']
+                        patterns_file_for_generalize = patternsFile
+                    elif 'urls' in patterns_data:
+                        top_patterns = patterns_data['urls']
+                        patterns_file_for_generalize = patternsFile
+
+            # Ensure patterns are strings and unique
+            if top_patterns:
+                top_patterns = list(set([str(p) for p in top_patterns if p]))
+
+        except Exception as e:
+            logger.warning(f"Could not load patterns file {patternsFile}: {e}")
+            logger.warning(f"Falling back to extracting top {topN} patterns")
+            patternsFile = None
+            top_patterns = None
+
+    # Generalize URLs
+    from data_processor import _generalize_url
+    log_df['url_pattern'] = log_df[url_field].apply(
+        lambda x: _generalize_url(x, patterns_file_for_generalize) if pd.notna(x) else 'Unknown'
+    )
+
+    # Group by time interval and URL pattern
+    log_df['time_bucket'] = log_df[time_field].dt.floor(interval)
+
+    # If patterns were not loaded from file, extract top N by processing time
+    if not patternsFile or not os.path.exists(patternsFile):
+        # Get top N URL patterns by total processing time (sum)
+        pattern_totals = log_df.groupby('url_pattern')[processingTimeField].sum().sort_values(ascending=False)
+        top_patterns = pattern_totals.head(topN).index.tolist()
+
+        logger.info(f"Extracted top {len(top_patterns)} patterns by {processingTimeField} sum")
+
+        # Mark patterns not in top_patterns as "Others"
+        log_df.loc[~log_df['url_pattern'].isin(top_patterns) & (log_df['url_pattern'] != 'Unknown'), 'url_pattern'] = 'Others'
+
+        # Generate pattern rules from patterns
+        pattern_rules = []
+        for pattern in top_patterns:
+            # Convert pattern with * wildcards to regex
+            temp_pattern = pattern.replace('*', '__WILDCARD__')
+            escaped_pattern = re.escape(temp_pattern)
+            regex_pattern = escaped_pattern.replace('__WILDCARD__', '.*')
+
+            pattern_rules.append({
+                'pattern': f'^{regex_pattern}$',
+                'replacement': pattern
+            })
+
+        # Save patterns to file
+        timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
+        patterns_file_path = input_path.parent / f"patterns_proctime_{timestamp}.json"
+
+        patterns_data = {
+            'patternRules': pattern_rules,
+            'totalPatterns': len(top_patterns),
+            'extractedAt': datetime.now().isoformat(),
+            'sourceFile': str(inputFile),
+            'topN': topN,
+            'sortedBy': f'{processingTimeField}_sum'
+        }
+
+        with open(patterns_file_path, 'w', encoding='utf-8') as f:
+            json.dump(patterns_data, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Saved patterns to {patterns_file_path}")
+        patternsFile = str(patterns_file_path)
+    else:
+        # Mark patterns not in top_patterns as "Others"
+        if top_patterns:
+            if patterns_file_for_generalize:
+                generalized_top_patterns = [
+                    _generalize_url(pattern, patterns_file_for_generalize)
+                    for pattern in top_patterns
+                ]
+                top_patterns = list(set(generalized_top_patterns))
+
+            log_df.loc[~log_df['url_pattern'].isin(top_patterns) & (log_df['url_pattern'] != 'Unknown'), 'url_pattern'] = 'Others'
+
+    # Calculate metric for each time bucket and URL pattern
+    if metric == 'avg':
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].mean().unstack(fill_value=0)
+        metric_label = 'Average'
+    elif metric == 'median':
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].median().unstack(fill_value=0)
+        metric_label = 'Median'
+    elif metric == 'p95':
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].quantile(0.95).unstack(fill_value=0)
+        metric_label = '95th Percentile'
+    elif metric == 'p99':
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].quantile(0.99).unstack(fill_value=0)
+        metric_label = '99th Percentile'
+    elif metric == 'max':
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].max().unstack(fill_value=0)
+        metric_label = 'Maximum'
+    else:
+        raise ValueError(f"Unknown metric: {metric}")
+
+    # Create interactive line chart
+    fig = go.Figure()
+
+    # Plotly's default color palette
+    plotly_default_colors = [
+        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+        '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+        '#c49c94', '#f7b6d3', '#c7c7c7', '#dbdb8d', '#9edae5'
+    ]
+
+    # Get actual patterns from pivot (sorted by total, excluding "Others")
+    pattern_totals = pivot.sum().sort_values(ascending=False)
+    actual_patterns = [p for p in pattern_totals.index if p != 'Others'][:topN]
+
+    # Add top patterns first
+    for i, pattern in enumerate(actual_patterns):
+        if pattern in pivot.columns:
+            trace_color = plotly_default_colors[i % len(plotly_default_colors)]
+            trace = go.Scattergl(
+                x=pivot.index,
+                y=pivot[pattern],
+                mode='lines+markers',
+                name=pattern,
+                line=dict(width=2, color=trace_color),
+                marker=dict(size=4, color=trace_color),
+                hovertemplate=f'{metric_label}: %{{y:.4f}}s, Pattern: {pattern}<extra></extra>',
+                visible=True
+            )
+            fig.add_trace(trace)
+
+    # Add "Others" trace if it exists
+    if 'Others' in pivot.columns:
+        others_color = '#808080'  # Gray color for Others
+        others_trace = go.Scattergl(
+            x=pivot.index,
+            y=pivot['Others'],
+            mode='lines+markers',
+            name='Others',
+            line=dict(width=2, color=others_color),
+            marker=dict(size=4, color=others_color),
+            hovertemplate=f'{metric_label}: %{{y:.4f}}s, Pattern: Others<extra></extra>',
+            visible=True
+        )
+        fig.add_trace(others_trace)
+
+    # Update layout
+    field_display_name = processingTimeField.replace('_', ' ').title()
+    fig.update_layout(
+        title=f'{metric_label} {field_display_name} per URI Pattern (Top {topN}, Interval: {interval})',
+        xaxis_title='Time',
+        yaxis_title=f'{metric_label} {field_display_name} (seconds)',
+        hovermode='x unified',
+        height=600,
+        showlegend=True,
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01
+        ),
+        dragmode='zoom'
+    )
+
+    # Add range slider for time navigation
+    fig.update_xaxes(
+        rangeslider_visible=True,
+        rangeselector=dict(
+            buttons=list([
+                dict(count=1, label="1h", step="hour", stepmode="backward"),
+                dict(count=6, label="6h", step="hour", stepmode="backward"),
+                dict(count=12, label="12h", step="hour", stepmode="backward"),
+                dict(count=1, label="1d", step="day", stepmode="backward"),
+                dict(step="all")
+            ])
+        )
+    )
+
+    # Enable y-axis autorange
+    fig.update_yaxes(
+        autorange=True,
+        fixedrange=False
+    )
+
+    # Generate output file
+    timestamp_output = datetime.now().strftime('%y%m%d_%H%M%S')
+    output_file = input_path.parent / f"proctime_{processingTimeField}_{metric}_{timestamp_output}.html"
+
+    # Save to HTML with CDN
+    fig.write_html(
+        output_file,
+        include_plotlyjs='cdn',
+        config={
+            'displayModeBar': True,
+            'displaylogo': False,
+            'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+            'toImageButtonOptions': {
+                'format': 'png',
+                'filename': f'proctime_{processingTimeField}_{metric}',
+                'height': 600,
+                'width': 1200,
+                'scale': 2
+            }
+        }
+    )
+
+    logger.info(f"Processing time visualization saved to {output_file}")
+
+    # Return result
+    return {
+        'filePath': str(output_file.resolve()),
+        'totalTransactions': len(log_df),
+        'patternsFile': patternsFile,
+        'patternsDisplayed': len(actual_patterns),
+        'processingTimeField': processingTimeField,
+        'metric': metric,
+        'interval': interval,
+        'topN': topN
+    }
+
+
 # Main function for testing
 if __name__ == "__main__":
     print("Data Visualizer Module - MCP Tools")
@@ -3161,4 +3489,5 @@ if __name__ == "__main__":
     print("  - generateXlog(inputFile, logFormatFile, outputFormat)")
     print("  - generateRequestPerURI(inputFile, logFormatFile, outputFormat)")
     print("  - generateMultiMetricDashboard(inputFile, logFormatFile, outputFormat)")
+    print("  - generateProcessingTimePerURI(inputFile, logFormatFile, outputFormat, ...)")
     print("  - generate_pivot_chart(pivot_df, output_file, chart_type, ...)")

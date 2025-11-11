@@ -177,7 +177,99 @@ Note: This pipeline used the NEW processing time analysis feature
 
 ### Menu Options
 - **6** - Calculate statistics (includes new Processing Time analysis)
-- **12** - Run example pipeline (demonstrates new feature)
+- **12** - Generate Processing Time per URI (NEW - Time-series visualization)
+- **13** - Run example pipeline (demonstrates new feature)
+
+## Processing Time Visualization (Option 12)
+
+### Interactive Time-Series Chart
+
+Option 12 provides a time-series visualization of processing time per URI pattern.
+
+#### Example Session
+
+```
+--- Generate Processing Time per URI ---
+
+Select processing time field:
+  1. request_processing_time
+  2. target_processing_time (default)
+  3. response_processing_time
+Field number (1-3, default: 2): 2
+  ✓ Selected field: target_processing_time
+
+Select metric:
+  1. avg - Average (default)
+  2. median - Median
+  3. p95 - 95th Percentile
+  4. p99 - 99th Percentile
+  5. max - Maximum
+Metric number (1-5, default: 1): 3
+  ✓ Selected metric: p95
+
+  Found 2 pattern file(s) in the directory:
+    1. patterns_250111_143000.json (20 pattern rules, 2048 bytes)
+    2. patterns_250111_120000.json (15 pattern rules, 1536 bytes)
+
+  Use existing pattern file? (y/n, default: n): y
+  Select file number (1-2): 1
+  ✓ Using pattern file: patterns_250111_143000.json
+
+Number of top URI patterns to display (default: use all from file): 10
+
+Time interval for aggregation (default: 1min, examples: 1s, 10s, 1min, 5min, 1h): 1min
+
+✓ Processing Time chart generated:
+  Total transactions: 1500000
+  Processing time field: target_processing_time
+  Metric: p95
+  Top N patterns: 10
+  Interval: 1min
+  Patterns file: /path/to/patterns_250111_143000.json
+  Patterns displayed: 10
+  Output file: /path/to/proctime_target_processing_time_p95_250111_150000.html
+
+  Open the HTML file in your browser to view the interactive chart.
+  Features:
+    - Time series visualization of processing time per URI pattern
+    - Interactive legend to show/hide patterns
+    - Drag to zoom, use toolbar for pan, reset, etc.
+    - Range slider for time navigation
+```
+
+### Use Cases
+
+#### Monitor Backend Performance Over Time
+```
+Field: target_processing_time
+Metric: avg or p95
+Interval: 1min or 5min
+```
+See how backend processing time changes over time for top endpoints.
+
+#### Identify Performance Degradation
+```
+Field: target_processing_time
+Metric: p95 or p99
+Interval: 5min
+```
+Spot when endpoints start showing worse worst-case performance.
+
+#### Compare Request/Response Times
+Run visualization twice:
+1. Field: request_processing_time, Metric: avg
+2. Field: response_processing_time, Metric: avg
+
+Compare the two charts to see if time is spent receiving requests or sending responses.
+
+### Chart Features
+
+- **Interactive Legend**: Click patterns to show/hide
+- **Zoom**: Drag to select area, or use zoom buttons
+- **Pan**: Use pan tool to navigate
+- **Range Slider**: Select time range at bottom
+- **Time Range Buttons**: Quick selection (1h, 6h, 12h, 1d, all)
+- **Export**: Download as PNG using camera button
 
 ## Tips
 
@@ -188,3 +280,5 @@ Note: This pipeline used the NEW processing time analysis feature
    - `sum` - Find endpoints consuming most total time
    - `p95`/`p99` - Find endpoints with worst-case performance
 4. **Multiple Fields**: Analyze all three processing time fields to understand where time is spent (client, backend, response)
+5. **Time-Series Visualization**: Use Option 12 to see how processing time changes over time
+6. **Combine Tools**: Use Option 6 to find slow URLs, then Option 12 to visualize their performance trends
