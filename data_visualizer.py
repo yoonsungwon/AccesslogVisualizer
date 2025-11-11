@@ -99,6 +99,504 @@ def _normalize_interval(interval: str) -> str:
     return normalized_interval
 
 
+def _generate_interactive_enhancements(
+    patterns: List[str],
+    colors: List[str],
+    div_id: str,
+    filter_label: str = "Filter Patterns:",
+    hover_format: str = "default"
+) -> tuple:
+    """
+    Generate checkbox filter panel, hover text display, and JavaScript for interactive visualizations.
+
+    Args:
+        patterns: List of pattern names to display in checkboxes
+        colors: List of colors matching each pattern (Plotly color format)
+        div_id: The Plotly div ID for targeting in JavaScript
+        filter_label: Label text for the filter panel (default: "Filter Patterns:")
+        hover_format: Format for hover text display ("default", "count", "time", or custom)
+
+    Returns:
+        tuple: (checkbox_html, hover_text_html, javascript_code)
+    """
+    # Plotly default color palette
+    plotly_default_colors = [
+        '#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',
+        '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52'
+    ]
+
+    # Create checkbox HTML for each pattern
+    checkbox_html = '<div id="filterCheckboxPanel" style="position: fixed; right: 20px; top: 80px; width: 220px; max-height: 500px; overflow-y: auto; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.1); color: #444; font-family: \'Open Sans\', verdana, arial, sans-serif;">'
+    checkbox_html += f'<div style="font-weight: bold; margin-bottom: 10px; font-size: 14px;">{filter_label}</div>'
+    checkbox_html += '<div style="margin-bottom: 8px; position: relative;"><input type="text" id="patternFilterInput" placeholder="Regex filter..." style="width: 100%; padding: 4px 24px 4px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; box-sizing: border-box;"><span id="clearFilterBtn" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 14px; color: #999; display: none;" title="Clear filter">×</span></div>'
+    checkbox_html += '<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkAll" checked> <strong>All</strong></label></div>'
+    checkbox_html += '<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkNone"> <strong>None</strong></label></div>'
+    checkbox_html += '<hr style="margin: 8px 0;">'
+
+    # Create checkbox items using the same patterns list
+    for i, pattern in enumerate(patterns):
+        pattern_id = f'pattern_{i}'
+        pattern_display = pattern[:60] + ('...' if len(pattern) > 60 else '')
+        # Use colors if provided, otherwise fall back to plotly default colors
+        trace_color = colors[i] if i < len(colors) else plotly_default_colors[i % len(plotly_default_colors)]
+        checkbox_html += f'<div class="pattern-item" style="margin-bottom: 3px; font-size: 11px;" data-pattern="{pattern}"><label class="pattern-label" data-index="{i}"><input type="checkbox" class="pattern-checkbox" id="{pattern_id}" data-index="{i}" checked> <span class="pattern-text" style="color: {trace_color}; font-weight: bold;">{pattern_display}</span></label></div>'
+
+    checkbox_html += '</div>'
+
+    # Add hover text display area and clipboard copy feature
+    hover_text_html = '''
+    <div id="hoverTextDisplay" style="position: fixed; bottom: 20px; right: 20px; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; max-width: 300px; max-height: 150px; overflow-y: auto; display: none; z-index: 2000; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-size: 12px; color: #444; font-family: 'Open Sans', verdana, arial, sans-serif;">
+        <div style="font-weight: bold; margin-bottom: 5px;">Hover Info:</div>
+        <div id="hoverTextContent" style="white-space: pre-wrap; word-break: break-word;"></div>
+        <div style="margin-top: 5px; font-size: 10px; color: #666;">Click or press Ctrl+C to copy</div>
+    </div>
+    '''
+
+    # JavaScript for checkbox functionality and hover text copy
+    js_code = f'''
+    <script>
+    (function() {{
+        // Hover text storage and clipboard functionality
+        let lastHoverText = '';
+        let hoverTextDisplay = null;
+        let hoverTextContent = null;
+
+        // Function to get hover text elements (lazy initialization)
+        function getHoverTextElements() {{
+            if (!hoverTextDisplay) {{
+                hoverTextDisplay = document.getElementById('hoverTextDisplay');
+            }}
+            if (!hoverTextContent) {{
+                hoverTextContent = document.getElementById('hoverTextContent');
+            }}
+            return {{ display: hoverTextDisplay, content: hoverTextContent }};
+        }}
+
+        // Function to copy text to clipboard
+        function copyToClipboard(text) {{
+            const elements = getHoverTextElements();
+            const hoverTextContent = elements.content;
+
+            if (!hoverTextContent) return;
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {{
+                navigator.clipboard.writeText(text).then(() => {{
+                    console.log('Copied to clipboard:', text);
+                    // Show feedback
+                    const originalContent = hoverTextContent.innerHTML;
+                    hoverTextContent.innerHTML = originalContent + '<br><span style="color: green;">✓ Copied!</span>';
+                    setTimeout(() => {{
+                        hoverTextContent.innerHTML = originalContent;
+                    }}, 1000);
+                }}).catch(err => {{
+                    console.error('Failed to copy:', err);
+                    fallbackCopyToClipboard(text);
+                }});
+            }} else {{
+                fallbackCopyToClipboard(text);
+            }}
+        }}
+
+        // Fallback copy method
+        function fallbackCopyToClipboard(text) {{
+            const elements = getHoverTextElements();
+            const hoverTextContent = elements.content;
+
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {{
+                document.execCommand('copy');
+                console.log('Copied to clipboard (fallback):', text);
+                if (hoverTextContent) {{
+                    const originalContent = hoverTextContent.innerHTML;
+                    hoverTextContent.innerHTML = originalContent + '<br><span style="color: green;">✓ Copied!</span>';
+                    setTimeout(() => {{
+                        hoverTextContent.innerHTML = originalContent;
+                    }}, 1000);
+                }}
+            }} catch (err) {{
+                console.error('Fallback copy failed:', err);
+            }}
+            document.body.removeChild(textArea);
+        }}
+
+        // Handle Ctrl+C keyboard shortcut
+        document.addEventListener('keydown', function(e) {{
+            if ((e.ctrlKey || e.metaKey) && e.key === 'c' && lastHoverText) {{
+                const elements = getHoverTextElements();
+                if (elements.display && elements.display.style.display !== 'none') {{
+                    e.preventDefault();
+                    copyToClipboard(lastHoverText);
+                }}
+            }}
+        }});
+
+        // Wait for DOM to be ready, then setup click handler
+        function setupHoverTextClick() {{
+            const elements = getHoverTextElements();
+            if (elements.display) {{
+                console.log('✓ hoverTextDisplay found, setting up click handler');
+                elements.display.addEventListener('click', function() {{
+                    if (lastHoverText) {{
+                        copyToClipboard(lastHoverText);
+                    }}
+                }});
+            }} else {{
+                // Retry if not ready yet
+                console.log('hoverTextDisplay not found, retrying...');
+                setTimeout(setupHoverTextClick, 100);
+            }}
+        }}
+
+        // Initialize hover text click handler when DOM is ready
+        function initHoverText() {{
+            if (document.readyState === 'loading') {{
+                document.addEventListener('DOMContentLoaded', function() {{
+                    setTimeout(setupHoverTextClick, 100);
+                }});
+            }} else {{
+                setTimeout(setupHoverTextClick, 100);
+            }}
+        }}
+
+        // Start hover text initialization
+        initHoverText();
+
+        // Wait for Plotly to be ready
+        function initCheckboxes() {{
+            const checkAll = document.getElementById('checkAll');
+            const checkNone = document.getElementById('checkNone');
+            const checkboxes = document.querySelectorAll('.pattern-checkbox');
+
+            if (!checkAll || !checkNone || checkboxes.length === 0) {{
+                console.warn('Checkbox elements not found. Retrying...');
+                setTimeout(initCheckboxes, 200);
+                return;
+            }}
+
+            console.log('✓ Checkbox elements found:', checkboxes.length, 'checkboxes');
+
+            if (!window.Plotly) {{
+                console.warn('Plotly not loaded yet');
+                setTimeout(initCheckboxes, 100);
+                return;
+            }}
+
+            // Find Plotly div
+            let plotlyDiv = null;
+            const targetDivId = "{div_id}";
+
+            // Method 1: Find by the specific ID
+            if (targetDivId && targetDivId !== '') {{
+                plotlyDiv = document.getElementById(targetDivId);
+            }}
+
+            // Method 2: Use window.gd if available
+            if (!plotlyDiv && window.gd) {{
+                plotlyDiv = window.gd;
+            }}
+
+            // Method 3: Find div with class 'js-plotly-plot'
+            if (!plotlyDiv) {{
+                const plotDivs = document.querySelectorAll('.js-plotly-plot');
+                if (plotDivs.length > 0) {{
+                    plotlyDiv = plotDivs[0];
+                }}
+            }}
+
+            if (!plotlyDiv) {{
+                console.error('Plotly div not found. Target ID:', targetDivId);
+                setTimeout(initCheckboxes, 200);
+                return;
+            }}
+
+            console.log('Found Plotly div:', plotlyDiv.id || plotlyDiv.className);
+
+            // Setup hover event handler to capture and display hover text
+            plotlyDiv.on('plotly_hover', function(data) {{
+                if (data && data.points && data.points.length > 0) {{
+                    // Collect all points
+                    const pointInfo = data.points.map(pt => {{
+                        const yValue = pt.y !== undefined ? pt.y : pt.y0 || 0;
+                        const traceName = pt.data?.name || pt.fullData?.name || 'Unknown';
+                        return {{
+                            value: yValue,
+                            name: traceName,
+                            point: pt
+                        }};
+                    }});
+
+                    // Sort by value in descending order
+                    pointInfo.sort((a, b) => b.value - a.value);
+
+                    // Format hover text
+                    let displayText = '';
+                    pointInfo.forEach((info, index) => {{
+                        if (index > 0) displayText += '\\n';
+                        displayText += `Value: ${{info.value}}, Series: ${{info.name}}`;
+                    }});
+
+                    // Store for clipboard copy
+                    lastHoverText = displayText;
+
+                    // Display in hover text area
+                    const elements = getHoverTextElements();
+                    if (elements.content && elements.display) {{
+                        elements.content.textContent = displayText;
+                        elements.display.style.display = 'block';
+                    }}
+                }}
+            }});
+
+            // Keep hover text visible for copying
+            plotlyDiv.on('plotly_unhover', function(data) {{
+                // Don't hide - keep visible for copying
+            }});
+
+            // Store original trace data
+            let originalTraceData = null;
+
+            const saveOriginalData = function() {{
+                if (!originalTraceData && plotlyDiv.data) {{
+                    originalTraceData = JSON.parse(JSON.stringify(plotlyDiv.data));
+                    console.log('Saved original trace data:', originalTraceData.length, 'traces');
+                }}
+            }};
+
+            setTimeout(saveOriginalData, 100);
+
+            const updateVisibility = function() {{
+                const visible = [];
+                checkboxes.forEach((cb) => {{
+                    visible.push(cb.checked);
+                }});
+
+                console.log('Updating visibility:', visible);
+
+                if (!originalTraceData && plotlyDiv.data) {{
+                    originalTraceData = JSON.parse(JSON.stringify(plotlyDiv.data));
+                }}
+
+                const currentTraceCount = plotlyDiv.data?.length || plotlyDiv._fullData?.length || 0;
+                const originalTraceCount = originalTraceData ? originalTraceData.length : visible.length;
+                const checkedCount = visible.filter(v => v).length;
+
+                try {{
+                    if (checkedCount === visible.length) {{
+                        // All selected - restore all traces
+                        if (currentTraceCount !== originalTraceCount && originalTraceData) {{
+                            console.log('Restoring all original traces');
+                            if (currentTraceCount > 0) {{
+                                for (let i = currentTraceCount - 1; i >= 0; i--) {{
+                                    try {{ Plotly.deleteTraces(plotlyDiv, i); }} catch (e) {{}}
+                                }}
+                            }}
+                            if (originalTraceData.length > 0) {{
+                                Plotly.addTraces(plotlyDiv, originalTraceData);
+                            }}
+                        }} else {{
+                            const visibleArray = Array(currentTraceCount).fill(true);
+                            const traceIndices = Array.from({{length: currentTraceCount}}, (_, i) => i);
+                            Plotly.restyle(plotlyDiv, {{visible: visibleArray}}, traceIndices);
+                        }}
+                    }} else if (checkedCount === 0) {{
+                        // None selected - hide all
+                        const visibleArray = Array(currentTraceCount).fill(false);
+                        const traceIndices = Array.from({{length: currentTraceCount}}, (_, i) => i);
+                        Plotly.restyle(plotlyDiv, {{visible: visibleArray}}, traceIndices);
+                    }} else {{
+                        // Some selected - show only selected
+                        if (originalTraceData) {{
+                            const selectedTraces = [];
+                            for (let i = 0; i < originalTraceData.length && i < visible.length; i++) {{
+                                if (visible[i]) selectedTraces.push(originalTraceData[i]);
+                            }}
+                            console.log('Selected traces to show:', selectedTraces.length);
+                            if (currentTraceCount > 0) {{
+                                for (let i = currentTraceCount - 1; i >= 0; i--) {{
+                                    try {{ Plotly.deleteTraces(plotlyDiv, i); }} catch (e) {{}}
+                                }}
+                            }}
+                            if (selectedTraces.length > 0) {{
+                                Plotly.addTraces(plotlyDiv, selectedTraces);
+                            }}
+                        }}
+                    }}
+                }} catch (e) {{
+                    console.error('Error updating plotly:', e);
+                }}
+            }};
+
+            // Helper function to check if checkbox is visible
+            const isCheckboxVisible = function(checkbox) {{
+                const patternItem = checkbox.closest('.pattern-item');
+                return patternItem && patternItem.style.display !== 'none';
+            }};
+
+            // Check all - only visible items
+            checkAll.addEventListener('change', function() {{
+                if (this.checked) {{
+                    checkNone.checked = false;
+                    checkboxes.forEach(cb => {{
+                        if (isCheckboxVisible(cb)) {{
+                            cb.checked = true;
+                        }} else {{
+                            cb.checked = false;
+                        }}
+                    }});
+                    updateVisibility();
+                }}
+            }});
+
+            // Check none
+            checkNone.addEventListener('change', function() {{
+                if (this.checked) {{
+                    checkAll.checked = false;
+                    checkboxes.forEach(cb => cb.checked = false);
+                    updateVisibility();
+                }}
+            }});
+
+            // Individual checkboxes
+            checkboxes.forEach(cb => {{
+                cb.addEventListener('change', function() {{
+                    if (this.checked) {{
+                        checkNone.checked = false;
+                    }}
+
+                    const visibleCheckboxes = Array.from(checkboxes).filter(c => isCheckboxVisible(c));
+                    const allVisibleChecked = visibleCheckboxes.length > 0 && visibleCheckboxes.every(c => c.checked);
+                    if (allVisibleChecked) {{
+                        checkAll.checked = true;
+                        checkNone.checked = false;
+                    }} else {{
+                        checkAll.checked = false;
+                    }}
+
+                    updateVisibility();
+                }});
+            }});
+
+            // Pattern filter input functionality
+            const patternFilterInput = document.getElementById('patternFilterInput');
+            const clearFilterBtn = document.getElementById('clearFilterBtn');
+
+            if (patternFilterInput) {{
+                const filterPatterns = function() {{
+                    const filterText = patternFilterInput.value.trim();
+                    const patternItems = document.querySelectorAll('.pattern-item');
+
+                    if (clearFilterBtn) {{
+                        clearFilterBtn.style.display = filterText ? 'block' : 'none';
+                    }}
+
+                    if (!filterText) {{
+                        patternItems.forEach(item => {{
+                            item.style.display = '';
+                        }});
+                        return;
+                    }}
+
+                    try {{
+                        const regex = new RegExp(filterText, 'i');
+                        let visibleCount = 0;
+                        patternItems.forEach(item => {{
+                            const pattern = item.getAttribute('data-pattern') || '';
+                            if (regex.test(pattern)) {{
+                                item.style.display = '';
+                                visibleCount++;
+                            }} else {{
+                                item.style.display = 'none';
+                            }}
+                        }});
+                        console.log(`Filtered patterns: ${{visibleCount}} visible out of ${{patternItems.length}} total`);
+                    }} catch (e) {{
+                        console.warn('Invalid regex pattern:', filterText, e);
+                        patternItems.forEach(item => {{
+                            item.style.display = '';
+                        }});
+                    }}
+                }};
+
+                patternFilterInput.addEventListener('input', filterPatterns);
+                patternFilterInput.addEventListener('keyup', filterPatterns);
+
+                if (clearFilterBtn) {{
+                    clearFilterBtn.addEventListener('click', function() {{
+                        patternFilterInput.value = '';
+                        filterPatterns();
+                        patternFilterInput.focus();
+                    }});
+
+                    clearFilterBtn.addEventListener('mouseenter', function() {{
+                        this.style.color = '#333';
+                    }});
+                    clearFilterBtn.addEventListener('mouseleave', function() {{
+                        this.style.color = '#999';
+                    }});
+                }}
+            }}
+        }}
+
+        // Initialize when DOM and Plotly are ready
+        function waitForPlotly() {{
+            if (document.readyState === 'loading') {{
+                document.addEventListener('DOMContentLoaded', function() {{
+                    setTimeout(waitForPlotly, 100);
+                }});
+                return;
+            }}
+
+            const checkAll = document.getElementById('checkAll');
+            const hoverTextDisplay = document.getElementById('hoverTextDisplay');
+
+            if (!checkAll || !hoverTextDisplay) {{
+                console.log('Waiting for HTML elements to be inserted...');
+                setTimeout(waitForPlotly, 100);
+                return;
+            }}
+
+            console.log('✓ HTML elements found, waiting for Plotly...');
+
+            if (window.Plotly) {{
+                console.log('✓ Plotly loaded, initializing checkboxes...');
+                setTimeout(initCheckboxes, 300);
+            }} else {{
+                let retryCount = 0;
+                const maxRetries = 50;
+                const checkPlotly = setInterval(function() {{
+                    retryCount++;
+                    if (window.Plotly) {{
+                        clearInterval(checkPlotly);
+                        console.log('✓ Plotly loaded after', retryCount * 100, 'ms');
+                        setTimeout(initCheckboxes, 300);
+                    }} else if (retryCount >= maxRetries) {{
+                        clearInterval(checkPlotly);
+                        console.error('Plotly not loaded after', maxRetries * 100, 'ms');
+                        setTimeout(initCheckboxes, 300);
+                    }}
+                }}, 100);
+            }}
+        }}
+
+        // Start initialization
+        if (document.readyState === 'loading') {{
+            document.addEventListener('DOMContentLoaded', waitForPlotly);
+        }} else {{
+            waitForPlotly();
+        }}
+    }})();
+    </script>
+    '''
+
+    return checkbox_html, hover_text_html, js_code
+
+
 # ============================================================================
 # MCP Tool: generateXlog
 # ============================================================================
@@ -309,34 +807,89 @@ def generateXlog(
                 hoverinfo='text'
             ))
     
-    # Update layout
+    # Collect trace names and colors for checkbox filter
+    trace_names = []
+    trace_colors = []
+    for trace in fig.data:
+        trace_names.append(trace.name)
+        trace_colors.append(trace.marker.color)
+
+    # Update layout with checkbox filter enhancements
     fig.update_layout(
         title='XLog - Response Time Scatter Plot',
         xaxis_title='Time',
         yaxis_title='Response Time (ms)',
         hovermode='closest',
         height=600,
-        showlegend=True,
-        legend=dict(
-            yanchor="top",
-            y=1,
-            xanchor="left",
-            x=1.02,
-            orientation="v"
-        )
+        showlegend=False,  # Use checkbox filter instead
+        margin=dict(r=250),  # Add right margin for checkbox panel
+        dragmode='zoom'  # Enable box select zoom (both horizontal and vertical)
     )
-    
+
     # Add zoom and pan features
     fig.update_xaxes(rangeslider_visible=True)
-    
+
+    # Enable vertical zoom
+    fig.update_yaxes(
+        autorange=True,
+        fixedrange=False  # Allow manual zoom on y-axis
+    )
+
     # Generate output file
     input_path = Path(inputFile)
     timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
     output_file = input_path.parent / f"xlog_{timestamp}.html"
-    
-    # Save as HTML
-    fig.write_html(str(output_file), include_plotlyjs='cdn')
-    
+
+    # Save as HTML with plotly div ID
+    plotly_div_id = f'plotly-div-{timestamp}'
+    fig.write_html(str(output_file), include_plotlyjs='cdn', div_id=plotly_div_id)
+
+    # Generate interactive enhancements (checkbox filter, hover text, vertical zoom)
+    checkbox_html, hover_text_html, js_code = _generate_interactive_enhancements(
+        patterns=trace_names,
+        colors=trace_colors,
+        div_id=plotly_div_id,
+        filter_label="Filter Status Codes:",
+        hover_format="xlog"
+    )
+
+    # Read the generated HTML and insert enhancements
+    with open(output_file, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+
+    # Extract the actual div ID from HTML (Plotly may modify it)
+    div_id_match = re.search(r'<div id="([^"]+)"[^>]*class="[^"]*plotly[^"]*"', html_content)
+    actual_div_id = div_id_match.group(1) if div_id_match else plotly_div_id
+
+    # Update js_code with actual div ID
+    js_code = js_code.replace(f'"{plotly_div_id}"', f'"{actual_div_id}"')
+
+    # Insert checkbox HTML, hover text display, and JavaScript before closing body tag
+    inserted = False
+    if '</body>' in html_content:
+        html_content = html_content.rsplit('</body>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_html + hover_text_html + js_code + '</body>' + html_content[1]
+            inserted = True
+
+    # Fallback: Insert before </html>
+    if not inserted and '</html>' in html_content:
+        html_content = html_content.rsplit('</html>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_html + hover_text_html + js_code + '</html>' + html_content[1]
+            inserted = True
+
+    # Fallback: Append at the end
+    if not inserted:
+        html_content += checkbox_html + hover_text_html + js_code
+
+    # Write modified HTML
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+    logger.info(f"  ✓ filterCheckboxPanel inserted for XLog")
+    logger.info(f"  ✓ hoverTextDisplay inserted for XLog")
+
     return {
         'filePath': str(output_file.resolve()),
         'totalTransactions': len(log_df)
@@ -1568,13 +2121,14 @@ def generateReceivedBytesPerURI(
         showlegend=False,  # Hide legend, use checkboxes instead
         title_text=f"Received Bytes per URI Pattern Analysis",
         hovermode='x unified',
-        margin=dict(r=280)  # Add right margin for checkbox panels
+        margin=dict(r=280),  # Add right margin for checkbox panels
+        dragmode='zoom'  # Enable box select zoom (both horizontal and vertical)
     )
 
-    # Update axes
+    # Update axes with vertical zoom enabled
     fig.update_xaxes(title_text='Time', row=2, col=1)
-    fig.update_yaxes(title_text='Sum Bytes', row=1, col=1)
-    fig.update_yaxes(title_text='Average Bytes', row=2, col=1)
+    fig.update_yaxes(title_text='Sum Bytes', row=1, col=1, fixedrange=False)  # Allow vertical zoom
+    fig.update_yaxes(title_text='Average Bytes', row=2, col=1, fixedrange=False)  # Allow vertical zoom
 
     # Add range slider for time navigation on bottom chart
     fig.update_xaxes(
@@ -2236,13 +2790,14 @@ def generateSentBytesPerURI(
         showlegend=False,  # Hide legend, use checkboxes instead
         title_text=f"Sent Bytes per URI Pattern Analysis",
         hovermode='x unified',
-        margin=dict(r=280)  # Add right margin for checkbox panels
+        margin=dict(r=280),  # Add right margin for checkbox panels
+        dragmode='zoom'  # Enable box select zoom (both horizontal and vertical)
     )
 
-    # Update axes
+    # Update axes with vertical zoom enabled
     fig.update_xaxes(title_text='Time', row=2, col=1)
-    fig.update_yaxes(title_text='Sum Bytes', row=1, col=1)
-    fig.update_yaxes(title_text='Average Bytes', row=2, col=1)
+    fig.update_yaxes(title_text='Sum Bytes', row=1, col=1, fixedrange=False)  # Allow vertical zoom
+    fig.update_yaxes(title_text='Average Bytes', row=2, col=1, fixedrange=False)  # Allow vertical zoom
 
     # Add range slider for time navigation on bottom chart
     fig.update_xaxes(
@@ -2785,7 +3340,7 @@ def generateMultiMetricDashboard(
         row=3, col=1
     )
     
-    # Update layout
+    # Update layout with vertical zoom support
     fig.update_layout(
         height=900,
         showlegend=True,
@@ -2796,17 +3351,23 @@ def generateMultiMetricDashboard(
             xanchor="left",
             x=1.02,
             orientation="v"
-        )
+        ),
+        dragmode='zoom'  # Enable box select zoom (both horizontal and vertical)
     )
-    
+
+    # Enable vertical zoom for all y-axes
+    fig.update_yaxes(fixedrange=False, row=1, col=1)
+    fig.update_yaxes(fixedrange=False, row=2, col=1)
+    fig.update_yaxes(fixedrange=False, row=3, col=1)
+
     # Generate output file
     input_path = Path(inputFile)
     timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
     output_file = input_path.parent / f"dashboard_{timestamp}.html"
-    
+
     # Save as HTML
     fig.write_html(str(output_file), include_plotlyjs='cdn')
-    
+
     return {
         'filePath': str(output_file.resolve()),
         'totalTransactions': len(log_df)
@@ -3407,7 +3968,14 @@ def generateProcessingTimePerURI(
         )
         fig.add_trace(others_trace)
 
-    # Update layout
+    # Collect trace names and colors for checkbox filter
+    trace_names = []
+    trace_colors = []
+    for trace in fig.data:
+        trace_names.append(trace.name)
+        trace_colors.append(trace.line.color)
+
+    # Update layout with checkbox filter enhancements
     field_display_name = processingTimeField.replace('_', ' ').title()
     fig.update_layout(
         title=f'{metric_label} {field_display_name} per URI Pattern (Top {topN}, Interval: {interval})',
@@ -3415,14 +3983,9 @@ def generateProcessingTimePerURI(
         yaxis_title=f'{metric_label} {field_display_name} (seconds)',
         hovermode='x unified',
         height=600,
-        showlegend=True,
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=0.01
-        ),
-        dragmode='zoom'
+        showlegend=False,  # Use checkbox filter instead
+        margin=dict(r=250),  # Add right margin for checkbox panel
+        dragmode='zoom'  # Enable box select zoom (both horizontal and vertical)
     )
 
     # Add range slider for time navigation
@@ -3439,20 +4002,22 @@ def generateProcessingTimePerURI(
         )
     )
 
-    # Enable y-axis autorange
+    # Enable y-axis autorange and vertical zoom
     fig.update_yaxes(
         autorange=True,
-        fixedrange=False
+        fixedrange=False  # Allow manual zoom on y-axis
     )
 
     # Generate output file
     timestamp_output = datetime.now().strftime('%y%m%d_%H%M%S')
     output_file = input_path.parent / f"proctime_{processingTimeField}_{metric}_{timestamp_output}.html"
 
-    # Save to HTML with CDN
+    # Save to HTML with plotly div ID
+    plotly_div_id = f'plotly-div-{timestamp_output}'
     fig.write_html(
-        output_file,
+        str(output_file),
         include_plotlyjs='cdn',
+        div_id=plotly_div_id,
         config={
             'displayModeBar': True,
             'displaylogo': False,
@@ -3467,7 +4032,52 @@ def generateProcessingTimePerURI(
         }
     )
 
+    # Generate interactive enhancements (checkbox filter, hover text, vertical zoom)
+    checkbox_html, hover_text_html, js_code = _generate_interactive_enhancements(
+        patterns=trace_names,
+        colors=trace_colors,
+        div_id=plotly_div_id,
+        filter_label="Filter URI Patterns:",
+        hover_format="processing_time"
+    )
+
+    # Read the generated HTML and insert enhancements
+    with open(output_file, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+
+    # Extract the actual div ID from HTML (Plotly may modify it)
+    div_id_match = re.search(r'<div id="([^"]+)"[^>]*class="[^"]*plotly[^"]*"', html_content)
+    actual_div_id = div_id_match.group(1) if div_id_match else plotly_div_id
+
+    # Update js_code with actual div ID
+    js_code = js_code.replace(f'"{plotly_div_id}"', f'"{actual_div_id}"')
+
+    # Insert checkbox HTML, hover text display, and JavaScript before closing body tag
+    inserted = False
+    if '</body>' in html_content:
+        html_content = html_content.rsplit('</body>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_html + hover_text_html + js_code + '</body>' + html_content[1]
+            inserted = True
+
+    # Fallback: Insert before </html>
+    if not inserted and '</html>' in html_content:
+        html_content = html_content.rsplit('</html>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_html + hover_text_html + js_code + '</html>' + html_content[1]
+            inserted = True
+
+    # Fallback: Append at the end
+    if not inserted:
+        html_content += checkbox_html + hover_text_html + js_code
+
+    # Write modified HTML
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
     logger.info(f"Processing time visualization saved to {output_file}")
+    logger.info(f"  ✓ filterCheckboxPanel inserted for Processing Time chart")
+    logger.info(f"  ✓ hoverTextDisplay inserted for Processing Time chart")
 
     # Return result
     return {
