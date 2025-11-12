@@ -315,12 +315,18 @@ class MultiprocessingConfig:
             # Get multiprocessing settings with defaults
             mp_config = config.get('multiprocessing', {})
 
-            return {
+            result = {
                 'enabled': mp_config.get('enabled', True),
                 'num_workers': mp_config.get('num_workers'),  # None = auto-detect
                 'chunk_size': mp_config.get('chunk_size', 10000),
                 'min_lines_for_parallel': mp_config.get('min_lines_for_parallel', 10000)
             }
+
+            logger.info(f"Multiprocessing config loaded: enabled={result['enabled']}, "
+                       f"num_workers={result['num_workers']}, chunk_size={result['chunk_size']}, "
+                       f"min_lines_for_parallel={result['min_lines_for_parallel']}")
+
+            return result
         except Exception as e:
             logger.warning(f"Could not load multiprocessing config: {e}, using defaults")
             return {

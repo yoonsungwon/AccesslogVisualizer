@@ -606,21 +606,27 @@ def extractUriPatterns(
                 'replacement': pattern
             })
         
-        output_file = input_path.parent / f"uris_{timestamp}.json"
-        
-        # Save as JSON with pattern rules only
-        result_data = {
-            'patternRules': pattern_rules,
+        # Use standardized patterns file path (same as visualization functions)
+        from data_visualizer import _save_or_merge_patterns, _get_patterns_file_path
+
+        patterns_file_path = _get_patterns_file_path(inputFile)
+        metadata = {
+            'sourceFile': str(inputFile),
+            'maxPatterns': max_patterns,
+            'minCount': min_count,
+            'maxCount': max_count,
+            'criteria': 'pattern_extraction',
             'counts': patterns,
             'totalRequests': total_requests
         }
-        
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(result_data, f, indent=2, ensure_ascii=False)
-        
+
+        # Save or merge patterns (preserves manually added rules)
+        output_file = _save_or_merge_patterns(patterns_file_path, pattern_rules, metadata)
+        logger.info(f"Saved/merged {len(pattern_rules)} patterns to {output_file}")
+
         # Return absolute path
         return {
-            'filePath': str(output_file.resolve()),
+            'filePath': output_file,
             'patternsFound': len(patterns),
             'totalRequests': total_requests
         }
@@ -1292,7 +1298,7 @@ def calculateStats(
     inputFile: str,
     logFormatFile: str,
     params: str = '',
-    use_multiprocessing: bool = True,
+    use_multiprocessing: Optional[bool] = None,
     num_workers: Optional[int] = None
 ) -> Dict[str, Any]:
     """
@@ -1309,8 +1315,10 @@ def calculateStats(
             - sortBy: Field name to sort URL stats by (e.g., 'request_processing_time', 'target_processing_time', 'count')
             - sortMetric: Metric to use for sorting ('avg', 'sum', 'median', 'p95', 'p99') - default: 'avg'
             - topN: Return only top N URLs (e.g., '20', '50')
-        use_multiprocessing (bool): Enable parallel processing
-        num_workers (int): Number of workers for parallel processing
+        use_multiprocessing (bool, optional): Enable parallel processing.
+            If None, reads from config.yaml (default: None)
+        num_workers (int, optional): Number of workers for parallel processing.
+            If None, reads from config.yaml or auto-detects (default: None)
 
     Returns:
         dict: {
@@ -1331,6 +1339,19 @@ def calculateStats(
             params='statsType=url;processingTimeFields=target_processing_time;sortBy=target_processing_time;sortMetric=sum;topN=10'
         )
     """
+    # Load multiprocessing configuration from config.yaml if not explicitly provided
+    from core.utils import MultiprocessingConfig
+    mp_config = MultiprocessingConfig.get_config()
+
+    # Apply config values if parameters are None
+    if use_multiprocessing is None:
+        use_multiprocessing = mp_config['enabled']
+    if num_workers is None:
+        num_workers = mp_config['num_workers']  # Can still be None (auto-detect)
+
+    logger.info(f"calculateStats: use_multiprocessing={use_multiprocessing}, "
+               f"num_workers={num_workers} (from config)")
+
     # Validate inputs
     if not inputFile or not os.path.exists(inputFile):
         raise ValueError(f"Input file not found: {inputFile}")
