@@ -99,6 +99,99 @@ def _normalize_interval(interval: str) -> str:
     return normalized_interval
 
 
+def _get_patterns_file_path(inputFile: str) -> Path:
+    """
+    Get standardized patterns file path based on input log file.
+
+    Returns a single patterns file path for the log file, enabling pattern reuse
+    across multiple visualization functions.
+
+    Args:
+        inputFile (str): Path to input log file
+
+    Returns:
+        Path: Standardized patterns file path (e.g., patterns_access.log.json)
+    """
+    input_path = Path(inputFile)
+    # Use log file name (without extension) for patterns file name
+    log_name = input_path.stem
+    if log_name.endswith('.log'):
+        log_name = log_name[:-4]  # Remove .log from stem if present
+
+    patterns_file_path = input_path.parent / f"patterns_{log_name}.json"
+    return patterns_file_path
+
+
+def _save_or_merge_patterns(
+    patterns_file_path: Path,
+    pattern_rules: List[Dict[str, str]],
+    metadata: Dict[str, Any]
+) -> str:
+    """
+    Save or merge pattern rules into a single patterns file.
+
+    If the patterns file already exists, merge new pattern rules with existing ones,
+    removing duplicates. Otherwise, create a new file.
+
+    Args:
+        patterns_file_path (Path): Path to patterns file
+        pattern_rules (List[Dict[str, str]]): New pattern rules to add
+        metadata (Dict[str, Any]): Metadata to include (topN, criteria, etc.)
+
+    Returns:
+        str: Absolute path to patterns file
+    """
+    existing_rules = []
+    existing_metadata = {}
+
+    # Load existing patterns if file exists
+    if patterns_file_path.exists():
+        try:
+            with open(patterns_file_path, 'r', encoding='utf-8') as f:
+                existing_data = json.load(f)
+                existing_rules = existing_data.get('patternRules', [])
+                existing_metadata = {
+                    k: v for k, v in existing_data.items()
+                    if k not in ['patternRules', 'extractedAt', 'lastUpdatedAt']
+                }
+                logger.info(f"Loaded {len(existing_rules)} existing patterns from {patterns_file_path}")
+        except Exception as e:
+            logger.warning(f"Failed to load existing patterns: {e}")
+            existing_rules = []
+
+    # Merge pattern rules (remove duplicates based on 'replacement' field)
+    all_rules = existing_rules + pattern_rules
+    unique_rules = {}
+    for rule in all_rules:
+        replacement = rule.get('replacement', '')
+        if replacement and replacement not in unique_rules:
+            unique_rules[replacement] = rule
+
+    merged_rules = list(unique_rules.values())
+
+    # Update metadata
+    merged_metadata = {
+        'patternRules': merged_rules,
+        'totalPatterns': len(merged_rules),
+        'extractedAt': existing_metadata.get('extractedAt', datetime.now().isoformat()),
+        'lastUpdatedAt': datetime.now().isoformat(),
+        **existing_metadata,
+        **metadata  # New metadata overwrites existing
+    }
+
+    # Save merged patterns
+    with open(patterns_file_path, 'w', encoding='utf-8') as f:
+        json.dump(merged_metadata, f, indent=2, ensure_ascii=False)
+
+    if existing_rules:
+        logger.info(f"Merged {len(pattern_rules)} new patterns with {len(existing_rules)} existing patterns")
+        logger.info(f"Total unique patterns: {len(merged_rules)} (saved to {patterns_file_path})")
+    else:
+        logger.info(f"Created new patterns file with {len(merged_rules)} patterns: {patterns_file_path}")
+
+    return str(patterns_file_path.resolve())
+
+
 def _generate_interactive_enhancements(
     patterns: List[str],
     colors: List[str],
@@ -1030,13 +1123,15 @@ def generateRequestPerURI(
             print(f"  Falling back to extracting top {topN} patterns")
             patternsFile = None
             top_patterns = None
-    
+
     # Generalize URLs (remove IDs) using pattern file if available
-    from data_processor import _generalize_url
+    from data_processor import _generalize_url_with_rules, _pattern_manager
+    # Pre-load pattern rules once to avoid repeated file lookups
+    pattern_rules = _pattern_manager.load_rules(patterns_file_for_generalize) if patterns_file_for_generalize else None
     log_df['url_pattern'] = log_df[url_field].apply(
-        lambda x: _generalize_url(x, patterns_file_for_generalize) if pd.notna(x) else 'Unknown'
+        lambda x: _generalize_url_with_rules(x, pattern_rules) if pd.notna(x) else 'Unknown'
     )
-    
+
     # Group by time interval and URL pattern
     log_df['time_bucket'] = log_df[time_field].dt.floor(interval)
     
@@ -1048,7 +1143,7 @@ def generateRequestPerURI(
             # URLs will be generalized using pattern rules, so we need to generalize
             # the patterns from file to match
             generalized_top_patterns = [
-                _generalize_url(pattern, patterns_file_for_generalize) 
+                _generalize_url_with_rules(pattern, pattern_rules)
                 for pattern in top_patterns
             ]
             # Update top_patterns to use generalized versions for consistency
@@ -1076,29 +1171,21 @@ def generateRequestPerURI(
             escaped_pattern = re.escape(temp_pattern)
             # Replace placeholder with .* (regex wildcard)
             regex_pattern = escaped_pattern.replace('__WILDCARD__', '.*')
-            
+
             pattern_rules.append({
                 'pattern': f'^{regex_pattern}$',
                 'replacement': pattern
             })
-        
-        # Save patterns to file with pattern rules only
-        timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
-        patterns_file_path = input_path.parent / f"patterns_{timestamp}.json"
-        
-        patterns_data = {
-            'patternRules': pattern_rules,
-            'totalPatterns': len(top_patterns),
-            'extractedAt': datetime.now().isoformat(),
+
+        # Save or merge patterns using standardized file path
+        patterns_file_path = _get_patterns_file_path(inputFile)
+        metadata = {
             'sourceFile': str(inputFile),
-            'topN': topN
+            'topN': topN,
+            'criteria': 'request_count'
         }
-        
-        with open(patterns_file_path, 'w', encoding='utf-8') as f:
-            json.dump(patterns_data, f, indent=2, ensure_ascii=False)
-        
+        patternsFile = _save_or_merge_patterns(patterns_file_path, pattern_rules, metadata)
         print(f"  Extracted top {len(top_patterns)} patterns and saved to {patterns_file_path}")
-        patternsFile = str(patterns_file_path)
     
     # Use log_df directly - patterns not in top_patterns are already marked as "Others"
     log_df_combined = log_df.copy()
@@ -1979,9 +2066,11 @@ def generateReceivedBytesPerURI(
             top_patterns = None
 
     # Generalize URLs (remove IDs) using pattern file if available
-    from data_processor import _generalize_url
+    from data_processor import _generalize_url_with_rules, _pattern_manager
+    # Pre-load pattern rules once to avoid repeated file lookups
+    pattern_rules = _pattern_manager.load_rules(patterns_file_for_generalize) if patterns_file_for_generalize else None
     log_df['url_pattern'] = log_df[url_field].apply(
-        lambda x: _generalize_url(x, patterns_file_for_generalize) if pd.notna(x) else 'Unknown'
+        lambda x: _generalize_url_with_rules(x, pattern_rules) if pd.notna(x) else 'Unknown'
     )
 
     # Group by time interval and URL pattern
@@ -2010,24 +2099,15 @@ def generateReceivedBytesPerURI(
                 'replacement': pattern
             })
 
-        # Save patterns to file with pattern rules only
-        timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
-        patterns_file_path = input_path.parent / f"patterns_{timestamp}.json"
-
-        patterns_data = {
-            'patternRules': pattern_rules,
-            'totalPatterns': len(top_patterns),
-            'extractedAt': datetime.now().isoformat(),
+        # Save or merge patterns using standardized file path
+        patterns_file_path = _get_patterns_file_path(inputFile)
+        metadata = {
             'sourceFile': str(inputFile),
             'topN': topN,
             'criteria': 'sum_received_bytes'
         }
-
-        with open(patterns_file_path, 'w', encoding='utf-8') as f:
-            json.dump(patterns_data, f, indent=2, ensure_ascii=False)
-
+        patternsFile = _save_or_merge_patterns(patterns_file_path, pattern_rules, metadata)
         logger.info(f"Extracted top {len(top_patterns)} patterns and saved to {patterns_file_path}")
-        patternsFile = str(patterns_file_path)
 
     # Filter data to only include top patterns
     bytes_stats_filtered = bytes_stats[bytes_stats['url_pattern'].isin(top_patterns)].copy()
@@ -2648,9 +2728,11 @@ def generateSentBytesPerURI(
             top_patterns = None
 
     # Generalize URLs (remove IDs) using pattern file if available
-    from data_processor import _generalize_url
+    from data_processor import _generalize_url_with_rules, _pattern_manager
+    # Pre-load pattern rules once to avoid repeated file lookups
+    pattern_rules = _pattern_manager.load_rules(patterns_file_for_generalize) if patterns_file_for_generalize else None
     log_df['url_pattern'] = log_df[url_field].apply(
-        lambda x: _generalize_url(x, patterns_file_for_generalize) if pd.notna(x) else 'Unknown'
+        lambda x: _generalize_url_with_rules(x, pattern_rules) if pd.notna(x) else 'Unknown'
     )
 
     # Group by time interval and URL pattern
@@ -2679,24 +2761,15 @@ def generateSentBytesPerURI(
                 'replacement': pattern
             })
 
-        # Save patterns to file with pattern rules only
-        timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
-        patterns_file_path = input_path.parent / f"patterns_{timestamp}.json"
-
-        patterns_data = {
-            'patternRules': pattern_rules,
-            'totalPatterns': len(top_patterns),
-            'extractedAt': datetime.now().isoformat(),
+        # Save or merge patterns using standardized file path
+        patterns_file_path = _get_patterns_file_path(inputFile)
+        metadata = {
             'sourceFile': str(inputFile),
             'topN': topN,
             'criteria': 'sum_sent_bytes'
         }
-
-        with open(patterns_file_path, 'w', encoding='utf-8') as f:
-            json.dump(patterns_data, f, indent=2, ensure_ascii=False)
-
+        patternsFile = _save_or_merge_patterns(patterns_file_path, pattern_rules, metadata)
         logger.info(f"Extracted top {len(top_patterns)} patterns and saved to {patterns_file_path}")
-        patternsFile = str(patterns_file_path)
 
     # Filter data to only include top patterns
     bytes_stats_filtered = bytes_stats[bytes_stats['url_pattern'].isin(top_patterns)].copy()
@@ -3742,6 +3815,7 @@ def generateProcessingTimePerURI(
             - 'response_processing_time'
         metric (str): Metric to calculate (default: 'avg')
             - 'avg': Average processing time
+            - 'sum': Sum of processing time
             - 'median': Median processing time
             - 'p95': 95th percentile
             - 'p99': 99th percentile
@@ -3766,7 +3840,7 @@ def generateProcessingTimePerURI(
         raise ValueError("Only 'html' output format is currently supported")
 
     # Validate metric
-    valid_metrics = ['avg', 'median', 'p95', 'p99', 'max']
+    valid_metrics = ['avg', 'sum', 'median', 'p95', 'p99', 'max']
     if metric not in valid_metrics:
         raise ValidationError('metric', f"Invalid metric: {metric}. Must be one of: {valid_metrics}")
 
@@ -3841,9 +3915,11 @@ def generateProcessingTimePerURI(
             top_patterns = None
 
     # Generalize URLs
-    from data_processor import _generalize_url
+    from data_processor import _generalize_url_with_rules, _pattern_manager
+    # Pre-load pattern rules once to avoid repeated file lookups
+    pattern_rules = _pattern_manager.load_rules(patterns_file_for_generalize) if patterns_file_for_generalize else None
     log_df['url_pattern'] = log_df[url_field].apply(
-        lambda x: _generalize_url(x, patterns_file_for_generalize) if pd.notna(x) else 'Unknown'
+        lambda x: _generalize_url_with_rules(x, pattern_rules) if pd.notna(x) else 'Unknown'
     )
 
     # Group by time interval and URL pattern
@@ -3873,30 +3949,21 @@ def generateProcessingTimePerURI(
                 'replacement': pattern
             })
 
-        # Save patterns to file
-        timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
-        patterns_file_path = input_path.parent / f"patterns_proctime_{timestamp}.json"
-
-        patterns_data = {
-            'patternRules': pattern_rules,
-            'totalPatterns': len(top_patterns),
-            'extractedAt': datetime.now().isoformat(),
+        # Save or merge patterns using standardized file path
+        patterns_file_path = _get_patterns_file_path(inputFile)
+        metadata = {
             'sourceFile': str(inputFile),
             'topN': topN,
-            'sortedBy': f'{processingTimeField}_sum'
+            'criteria': f'{processingTimeField}_sum'
         }
-
-        with open(patterns_file_path, 'w', encoding='utf-8') as f:
-            json.dump(patterns_data, f, indent=2, ensure_ascii=False)
-
+        patternsFile = _save_or_merge_patterns(patterns_file_path, pattern_rules, metadata)
         logger.info(f"Saved patterns to {patterns_file_path}")
-        patternsFile = str(patterns_file_path)
     else:
         # Mark patterns not in top_patterns as "Others"
         if top_patterns:
             if patterns_file_for_generalize:
                 generalized_top_patterns = [
-                    _generalize_url(pattern, patterns_file_for_generalize)
+                    _generalize_url_with_rules(pattern, pattern_rules)
                     for pattern in top_patterns
                 ]
                 top_patterns = list(set(generalized_top_patterns))
@@ -3907,6 +3974,9 @@ def generateProcessingTimePerURI(
     if metric == 'avg':
         pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].mean().unstack(fill_value=0)
         metric_label = 'Average'
+    elif metric == 'sum':
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].sum().unstack(fill_value=0)
+        metric_label = 'Sum'
     elif metric == 'median':
         pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].median().unstack(fill_value=0)
         metric_label = 'Median'

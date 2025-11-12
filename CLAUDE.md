@@ -139,12 +139,17 @@ AccesslogAnalyzer/
   - **interval parameter**: Supports flexible time interval formats (e.g., '1m', '10s', '1h')
   - Automatically normalizes common abbreviations: '1m' → '1min', '30sec' → '30s'
   - Supported units: s (seconds), min (minutes), h (hours), d (days)
-- `generateProcessingTimePerURI(inputFile, logFormatFile, outputFormat, processingTimeField, metric, topN, interval, patternsFile)`: Time-series visualization of processing time per URI pattern (NEW)
+- `generateProcessingTimePerURI(inputFile, logFormatFile, outputFormat, processingTimeField, metric, topN, interval, patternsFile)`: Time-series visualization of processing time per URI pattern
   - **processingTimeField**: Field to analyze (request_processing_time, target_processing_time, response_processing_time)
-  - **metric**: Metric to calculate (avg, median, p95, p99, max)
+  - **metric**: Metric to calculate (avg, sum, median, p95, p99, max)
   - Extracts top N patterns by total processing time
   - Interactive time-series chart with zoom, pan, and range slider
 - `generateMultiMetricDashboard(inputFile, logFormatFile, outputFormat)`: Creates comprehensive 3-panel dashboard
+- **Pattern File Management** (NEW):
+  - `_get_patterns_file_path(inputFile)`: Returns standardized patterns file path based on input log file (e.g., `patterns_access.log.json`)
+  - `_save_or_merge_patterns(patterns_file_path, pattern_rules, metadata)`: Saves or merges pattern rules into a single patterns file, removing duplicates
+  - All visualization functions now share a single patterns file per log file, eliminating multiple timestamped pattern files
+  - Pattern rules are automatically merged when different visualization functions are called on the same log file
 - `_normalize_interval(interval)`: Helper function to normalize time interval strings to pandas-compatible format
 - All visualizations use Plotly with CDN for interactivity
 
@@ -163,6 +168,11 @@ Output files follow strict naming patterns for easy identification:
 - `filtered_*.log` - Filtered log data (JSON Lines format)
 - `urls_*.json` - URL extraction results
 - `uris_*.json` or `patterns_*.json` - URI pattern extraction with `patternRules`
+- `patterns_{log_name}.json` - **Single unified patterns file per log file** (NEW)
+  - All visualization functions now share the same patterns file for a given log file
+  - Format: `patterns_access.log.json` for input file `access.log.gz`
+  - Pattern rules are automatically merged when different functions extract patterns
+  - Replaces previous timestamped files: `patterns_241111_120000.json`, `patterns_proctime_241111_120000.json`
 - `stats_*.json` - Statistical analysis results
 - `xlog_*.html` - Response time scatter plots
 - `requestcnt_*.html` - Request count visualizations

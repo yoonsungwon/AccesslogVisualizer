@@ -636,18 +636,20 @@ def generate_processing_time(log_file, log_format_file):
     # Select metric
     print("\nSelect metric:")
     print("  1. avg - Average (default)")
-    print("  2. median - Median")
-    print("  3. p95 - 95th Percentile")
-    print("  4. p99 - 99th Percentile")
-    print("  5. max - Maximum")
-    metric_choice = input("Metric number (1-5, default: 1): ").strip()
+    print("  2. sum - Sum")
+    print("  3. median - Median")
+    print("  4. p95 - 95th Percentile")
+    print("  5. p99 - 99th Percentile")
+    print("  6. max - Maximum")
+    metric_choice = input("Metric number (1-6, default: 1): ").strip()
 
     metric_map = {
         '1': 'avg',
-        '2': 'median',
-        '3': 'p95',
-        '4': 'p99',
-        '5': 'max',
+        '2': 'sum',
+        '3': 'median',
+        '4': 'p95',
+        '5': 'p99',
+        '6': 'max',
         '': 'avg'  # default
     }
 

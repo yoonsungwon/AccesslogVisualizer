@@ -836,6 +836,75 @@ def _generalize_url(url, patterns_file=None):
     return result
 
 
+def _generalize_url_with_rules(url, pattern_rules=None):
+    """
+    Generalize URL using pre-loaded pattern rules.
+
+    This is a performance-optimized version of _generalize_url that accepts
+    pre-loaded pattern rules directly, avoiding repeated file loading and
+    cache lookups when processing many URLs.
+
+    Use this function when processing DataFrames with apply():
+        pattern_rules = _pattern_manager.load_rules(patterns_file)
+        df['url_pattern'] = df['url'].apply(lambda x: _generalize_url_with_rules(x, pattern_rules))
+
+    Args:
+        url: URL string to generalize
+        pattern_rules: Pre-loaded list of compiled pattern rules from PatternRulesManager.
+                      Each rule has 'pattern' (compiled regex) and 'replacement' (string).
+
+    Returns:
+        Generalized URL pattern
+    """
+    if not url:
+        return url
+
+    # Try pattern rules first
+    if pattern_rules:
+        for rule in pattern_rules:
+            if rule['pattern'].match(url):
+                return rule['replacement']
+
+    # Fallback to default generalization
+    # Split into path and query
+    parts = url.split('?')
+    path = parts[0]
+
+    # Split path into segments
+    segments = path.split('/')
+
+    # Generalize each segment
+    generalized = []
+    for i, segment in enumerate(segments):
+        if not segment:
+            generalized.append(segment)
+            continue
+
+        # Check if this is the last segment (potential filename)
+        is_last_segment = (i == len(segments) - 1)
+
+        # Check if segment is a static file
+        if is_last_segment:
+            static_category = _categorize_static_file(segment)
+            if static_category:
+                generalized.append(static_category)
+                continue
+
+        # Check if segment looks like an ID
+        if _is_id_like(segment):
+            generalized.append('*')
+        else:
+            generalized.append(segment)
+
+    result = '/'.join(generalized)
+
+    # Append query placeholder if present
+    if len(parts) > 1:
+        result += '?*'
+
+    return result
+
+
 def _categorize_static_file(filename: str) -> Optional[str]:
     """
     Categorize static files by extension.
