@@ -300,10 +300,86 @@ def generate_xlog_viz(log_file, log_format_file):
     """Generate XLog visualization"""
     print("\n--- Generate XLog ---")
 
+    # Ask for grouping method
+    print("\n  Select grouping method:")
+    print("    1. Group by Status Code (default)")
+    print("    2. Group by URL Pattern")
+    print("    3. Group by Target IP")
+    group_choice = input("\n  Enter choice (1-3) [default: 1]: ").strip()
+
+    group_by = "status"
+    patterns_file = None
+
+    if group_choice == "2":
+        group_by = "url"
+
+        # Check for existing pattern files
+        log_file_path = Path(log_file)
+        log_dir = log_file_path.parent
+        pattern_files = []
+        try:
+            pattern_files = sorted(log_dir.glob('patterns_*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+        except Exception:
+            pass
+
+        if pattern_files:
+            print(f"\n  Found {len(pattern_files)} pattern file(s):")
+            for i, pf in enumerate(pattern_files[:5], 1):
+                print(f"    {i}. {pf.name}")
+            print(f"    {len(pattern_files[:5]) + 1}. Auto-detect")
+            print(f"    {len(pattern_files[:5]) + 2}. Skip (use raw URLs)")
+
+            choice = input(f"\n  Select pattern file (1-{len(pattern_files[:5]) + 2}) [default: auto-detect]: ").strip()
+            if choice and choice.isdigit():
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(pattern_files[:5]):
+                    patterns_file = str(pattern_files[choice_num - 1])
+                    print(f"  Using pattern file: {patterns_file}")
+                elif choice_num == len(pattern_files[:5]) + 2:
+                    print("  Skipping pattern file, using raw URLs")
+                else:
+                    print("  Auto-detecting pattern file")
+            else:
+                print("  Auto-detecting pattern file")
+        else:
+            print("  No pattern files found. Will use raw URLs for grouping.")
+    elif group_choice == "3":
+        group_by = "ip"
+        print("  Grouping by Target IP address")
+
+    # Ask for status code field
+    print("\n  Select status code field:")
+    print("    1. elb_status_code (default)")
+    print("    2. target_status_code")
+    status_choice = input("\n  Enter choice (1-2) [default: 1]: ").strip()
+
+    status_field = "elb_status_code"
+    if status_choice == "2":
+        status_field = "target_status_code"
+
+    print(f"  Using status code field: {status_field}")
+
+    # Ask for URL pattern filtering (optional)
+    print("\n  URL Pattern Filtering (optional):")
+    print("    Enter comma-separated URL patterns to filter (e.g., '/api/*,/admin/*')")
+    print("    Leave empty to show all URLs")
+    url_patterns = input("\n  URL patterns: ").strip()
+
     try:
-        result = generateXlog(log_file, log_format_file, 'html')
+        result = generateXlog(log_file, log_format_file, 'html', status_field, url_patterns, group_by, patterns_file)
         print(f"\n✓ XLog generated:")
-        print(f"  Total transactions: {result['totalTransactions']}")
+        print(f"  Grouping method: {result['groupBy']}")
+        if result['groupBy'] == 'url' and 'uniquePatterns' in result:
+            print(f"  Unique URL patterns: {result['uniquePatterns']}")
+        elif result['groupBy'] == 'ip' and 'uniqueIPs' in result:
+            print(f"  Unique Target IPs: {result['uniqueIPs']}")
+        print(f"  Status code field: {result['statusCodeField']}")
+        if result['filteredUrls'] > 0:
+            print(f"  URL filters applied: {result['filteredUrls']}")
+            print(f"  Original transactions: {result['originalTransactions']}")
+            print(f"  Filtered transactions: {result['totalTransactions']}")
+        else:
+            print(f"  Total transactions: {result['totalTransactions']}")
         print(f"  Output file: {result['filePath']}")
         print(f"\n  Open the HTML file in your browser to view the interactive chart.")
     except Exception as e:

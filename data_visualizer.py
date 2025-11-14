@@ -746,20 +746,33 @@ def _generate_interactive_enhancements(
 def generateXlog(
     inputFile: str,
     logFormatFile: str,
-    outputFormat: str = 'html'
+    outputFormat: str = 'html',
+    statusCodeField: str = 'elb_status_code',
+    urlPatterns: str = '',
+    groupBy: str = 'status',
+    patternsFile: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Generate XLog (response time scatter plot) visualization.
-    
+
     Args:
         inputFile (str): Input log file path
         logFormatFile (str): Log format JSON file path
         outputFormat (str): Output format ('html' only supported)
-        
+        statusCodeField (str): Status code field to use for coloring ('elb_status_code' or 'target_status_code')
+        urlPatterns (str): Comma-separated URL patterns to filter (optional, e.g., '/api/*,/admin/*')
+        groupBy (str): Grouping method - 'status' (by status code), 'url' (by URL pattern), or 'ip' (by target IP)
+        patternsFile (str): Pattern rules file for URL grouping (used when groupBy='url')
+
     Returns:
         dict: {
             'filePath': str (absolute path to xlog_*.html),
-            'totalTransactions': int
+            'totalTransactions': int,
+            'statusCodeField': str (used status code field),
+            'filteredUrls': int (number of URL patterns applied, 0 if none),
+            'groupBy': str (grouping method used),
+            'uniquePatterns': int (number of unique URL patterns, if groupBy='url'),
+            'uniqueIPs': int (number of unique target IPs, if groupBy='ip')
         }
     """
     # Validate inputs
@@ -769,7 +782,34 @@ def generateXlog(
         raise CustomFileNotFoundError(logFormatFile)
     if outputFormat != 'html':
         raise ValidationError('outputFormat', "Only 'html' output format is currently supported")
-    
+
+    # Validate statusCodeField
+    valid_status_fields = ['elb_status_code', 'target_status_code']
+    if statusCodeField not in valid_status_fields:
+        raise ValidationError('statusCodeField', f"Must be one of {valid_status_fields}")
+
+    # Validate groupBy
+    valid_group_by = ['status', 'url', 'ip']
+    if groupBy not in valid_group_by:
+        raise ValidationError('groupBy', f"Must be one of {valid_group_by}")
+
+    # If groupBy='url', check for patternsFile
+    if groupBy == 'url' and not patternsFile:
+        # Try to find patterns file automatically
+        input_path = Path(inputFile)
+        log_name = input_path.stem
+        if log_name.endswith('.log'):
+            log_name = log_name[:-4]
+        auto_patterns_file = input_path.parent / f"patterns_{log_name}.json"
+        if auto_patterns_file.exists():
+            patternsFile = str(auto_patterns_file)
+            logger.info(f"  Auto-detected patterns file: {patternsFile}")
+        else:
+            logger.warning(f"  groupBy='url' specified but no patternsFile found. Using raw URLs for grouping.")
+
+    if patternsFile and not os.path.exists(patternsFile):
+        raise CustomFileNotFoundError(patternsFile)
+
     # Load log format
     with open(logFormatFile, 'r', encoding='utf-8') as f:
         format_info = json.load(f)
@@ -777,19 +817,25 @@ def generateXlog(
     # Get field mappings to determine required columns
     time_field = format_info['fieldMap'].get('timestamp', 'time')
     url_field = format_info['fieldMap'].get('url', 'request_url')
-    status_field = format_info['fieldMap'].get('status', 'elb_status_code')
+    # Use the user-selected status code field
+    status_field = statusCodeField
     rt_field = format_info['fieldMap'].get('responseTime', 'target_processing_time')
+    ip_field = format_info['fieldMap'].get('targetIp', 'target_ip')
 
     # Memory optimization: Parse with only required columns
     from data_parser import parse_log_file_with_format
     time_field_candidates = [time_field, 'time', 'timestamp', '@timestamp', 'datetime']
     url_field_candidates = [url_field, 'request_url', 'url', 'request_uri', 'uri']
-    status_field_candidates = [status_field, 'elb_status_code', 'status_code', 'status', 'http_status']
+    # Include both status code fields in candidates
+    status_field_candidates = [status_field, 'elb_status_code', 'target_status_code', 'status_code', 'status', 'http_status']
     rt_field_candidates = [rt_field, 'target_processing_time', 'response_time', 'duration', 'elapsed',
                            'request_processing_time', 'response_processing_time']
+    ip_field_candidates = [ip_field, 'target_ip', 'backend_ip', 'server_ip', 'upstream_addr']
 
-    required_columns = list(set(time_field_candidates + url_field_candidates + status_field_candidates + rt_field_candidates))
+    required_columns = list(set(time_field_candidates + url_field_candidates + status_field_candidates + rt_field_candidates + ip_field_candidates))
     log_df = parse_log_file_with_format(inputFile, logFormatFile, columns_to_load=required_columns)
+
+    original_total_count = len(log_df)
 
     if log_df.empty:
         raise ValueError("No data to visualize")
@@ -820,10 +866,10 @@ def generateXlog(
         
         # If status_field is not found, try to find it
         if status_field not in available_columns:
-            possible_status_fields = ['elb_status_code', 'status_code', 'status', 'http_status']
+            possible_status_fields = ['elb_status_code', 'target_status_code', 'status_code', 'status', 'http_status']
             for field in possible_status_fields:
                 if field in available_columns:
-                    print(f"  Using '{field}' as status field (instead of '{status_field}')")
+                    logger.info(f"  Using '{field}' as status field (instead of '{status_field}')")
                     status_field = field
                     break
         
@@ -835,7 +881,16 @@ def generateXlog(
                     print(f"  Using '{field}' as response time field (instead of '{rt_field}')")
                     rt_field = field
                     break
-    
+
+        # If ip_field is not found, try to find it
+        if ip_field not in available_columns:
+            possible_ip_fields = ['target_ip', 'backend_ip', 'server_ip', 'upstream_addr']
+            for field in possible_ip_fields:
+                if field in available_columns:
+                    logger.info(f"  Using '{field}' as IP field (instead of '{ip_field}')")
+                    ip_field = field
+                    break
+
     # Check if required fields exist
     if time_field not in log_df.columns:
         raise ValueError(f"Time field '{time_field}' not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
@@ -867,13 +922,83 @@ def generateXlog(
         # If response time field is not available, create a dummy field
         print(f"  Warning: Response time field not available, using default value")
         rt_field = None
-    
+
+    # Apply URL pattern filtering if specified
+    filtered_url_count = 0
+    if urlPatterns and urlPatterns.strip():
+        if url_field not in log_df.columns:
+            logger.warning(f"  URL field '{url_field}' not found. Skipping URL filtering.")
+        else:
+            # Parse URL patterns
+            import fnmatch
+            patterns = [p.strip() for p in urlPatterns.split(',') if p.strip()]
+            if patterns:
+                logger.info(f"  Filtering by {len(patterns)} URL pattern(s): {patterns}")
+
+                # Create a mask for matching rows
+                mask = pd.Series([False] * len(log_df), index=log_df.index)
+                for pattern in patterns:
+                    # Use fnmatch for wildcard matching
+                    pattern_mask = log_df[url_field].apply(
+                        lambda x: fnmatch.fnmatch(str(x), pattern) if pd.notna(x) else False
+                    )
+                    mask = mask | pattern_mask
+
+                before_count = len(log_df)
+                log_df = log_df[mask]
+                after_count = len(log_df)
+                filtered_url_count = len(patterns)
+                logger.info(f"  ✓ Filtered {before_count} → {after_count} transactions by URL patterns")
+
+                if log_df.empty:
+                    raise ValueError(f"No data matches the specified URL patterns: {patterns}")
+
+    # Load pattern rules if groupBy='url' and patternsFile is provided
+    pattern_rules = []
+    if groupBy == 'url' and patternsFile:
+        try:
+            with open(patternsFile, 'r', encoding='utf-8') as f:
+                patterns_data = json.load(f)
+                if isinstance(patterns_data, dict) and 'patternRules' in patterns_data:
+                    pattern_rules = patterns_data['patternRules']
+                    logger.info(f"  Loaded {len(pattern_rules)} pattern rules from {patternsFile}")
+                elif isinstance(patterns_data, list):
+                    # Old format: list of patterns
+                    pattern_rules = [{'pattern': p, 'replacement': p} for p in patterns_data]
+                    logger.info(f"  Loaded {len(pattern_rules)} patterns (old format) from {patternsFile}")
+        except Exception as e:
+            logger.warning(f"  Failed to load patterns file: {e}")
+            pattern_rules = []
+
+    # Map URLs to patterns if groupBy='url'
+    if groupBy == 'url' and url_field in log_df.columns:
+        def map_url_to_pattern(url):
+            """Map a URL to its pattern using pattern rules"""
+            if pd.isna(url):
+                return 'Unknown'
+            url_str = str(url)
+
+            # Try to match against pattern rules
+            for rule in pattern_rules:
+                pattern = rule.get('pattern', '')
+                replacement = rule.get('replacement', pattern)
+                if re.match(pattern, url_str):
+                    return replacement
+
+            # If no pattern matched, return the URL as-is (or truncate if too long)
+            if len(url_str) > 50:
+                return url_str[:47] + '...'
+            return url_str
+
+        log_df['uri_pattern'] = log_df[url_field].apply(map_url_to_pattern)
+        logger.info(f"  Mapped URLs to {log_df['uri_pattern'].nunique()} unique patterns")
+
     # Sampling for performance (if data is too large)
     max_points = 50000  # Maximum points to display
     if len(log_df) > max_points:
         print(f"  Note: Sampling {max_points} points from {len(log_df)} total transactions for performance")
         log_df = log_df.sample(n=max_points, random_state=42)
-    
+
     # Create color mapping based on status code
     def get_color(status):
         if pd.isna(status):
@@ -890,82 +1015,234 @@ def generateXlog(
                 return 'red'
         except:
             return 'gray'
-    
+
     if status_field and status_field in log_df.columns:
         log_df['color'] = log_df[status_field].apply(get_color)
     else:
         # If status field is not available, use default color
         log_df['color'] = 'gray'
-    
+
     # Create interactive scatter plot using WebGL for better performance
     fig = go.Figure()
-    
-    # Add scatter plot with WebGL rendering (Scattergl)
-    for color_name, color_val in [('green', 'Success (2xx)'), ('blue', 'Redirect (3xx)'), 
-                                   ('orange', 'Client Error (4xx)'), ('red', 'Server Error (5xx)'),
-                                   ('gray', 'Unknown')]:
-        mask = log_df['color'] == color_name
-        if mask.any():
-            subset = log_df[mask]
-            # Pre-format hover text efficiently
-            hover_text = []
-            for _, row in subset.iterrows():
-                text = f"Time: {row[time_field]}<br>"
-                if url_field and url_field in row and pd.notna(row[url_field]):
-                    text += f"URL: {row[url_field]}<br>"
-                if rt_field and rt_field in row and pd.notna(row[rt_field]):
-                    text += f"Response Time: {row[rt_field]:.2f} ms<br>"
-                if status_field and status_field in row and pd.notna(row[status_field]):
-                    try:
-                        text += f"Status: {int(row[status_field])}"
-                    except:
-                        text += f"Status: {row[status_field]}"
-                hover_text.append(text)
-            
-            # Use Scattergl for WebGL rendering (much faster for large datasets)
-            # Only plot if rt_field is available
-            if rt_field and rt_field in subset.columns:
-                fig.add_trace(go.Scattergl(
-                x=subset[time_field],
-                y=subset[rt_field],
-                mode='markers',
-                name=color_val,
-                marker=dict(
-                    color=color_name,
-                    size=4,  # Slightly smaller for better performance
-                    opacity=0.6,
-                    line=dict(width=0)  # No border for better performance
-                    ),
-                    hovertext=hover_text,
-                    hoverinfo='text'
-                ))
-            else:
-                # If no response time, plot by count
-                fig.add_trace(go.Scattergl(
-                    x=subset[time_field],
-                    y=[1] * len(subset),  # Dummy y-axis
+
+    # Different grouping strategies
+    if groupBy == 'url':
+        # Group by URL pattern
+        if 'uri_pattern' not in log_df.columns:
+            logger.warning("  uri_pattern column not found. Falling back to status grouping.")
+            groupBy = 'status'  # Fallback
+        else:
+            # Get unique URI patterns
+            unique_patterns = log_df['uri_pattern'].value_counts()
+            logger.info(f"  Creating traces for {len(unique_patterns)} URI patterns")
+
+            # Define color palette for URL patterns
+            colors = [
+                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+                '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+                '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5'
+            ]
+
+            # Add scatter plot for each URI pattern
+            for idx, (pattern, count) in enumerate(unique_patterns.items()):
+                subset = log_df[log_df['uri_pattern'] == pattern]
+
+                # Pre-format hover text
+                hover_text = []
+                for _, row in subset.iterrows():
+                    text = f"Pattern: {pattern}<br>"
+                    text += f"Time: {row[time_field]}<br>"
+                    if url_field and url_field in row and pd.notna(row[url_field]):
+                        text += f"URL: {row[url_field]}<br>"
+                    if rt_field and rt_field in row and pd.notna(row[rt_field]):
+                        text += f"Response Time: {row[rt_field]:.2f} ms<br>"
+                    if status_field and status_field in row and pd.notna(row[status_field]):
+                        try:
+                            text += f"Status: {int(row[status_field])}"
+                        except:
+                            text += f"Status: {row[status_field]}"
+                    hover_text.append(text)
+
+                # Add trace - use status code colors for each point
+                if rt_field and rt_field in subset.columns:
+                    # Convert datetime to avoid FutureWarning
+                    x_values = subset[time_field].values if hasattr(subset[time_field], 'values') else subset[time_field]
+                    y_values = subset[rt_field].values if hasattr(subset[rt_field], 'values') else subset[rt_field]
+
+                    fig.add_trace(go.Scattergl(
+                        x=x_values,
+                        y=y_values,
+                        mode='markers',
+                        name=f"{pattern} ({count})",
+                        marker=dict(
+                            color=subset['color'].tolist(),  # Use status code colors
+                            size=4,
+                            opacity=0.6,
+                            line=dict(width=0)
+                        ),
+                        hovertext=hover_text,
+                        hoverinfo='text'
+                    ))
+
+    elif groupBy == 'ip':
+        # Group by target IP
+        if ip_field not in log_df.columns or log_df[ip_field].isna().all():
+            logger.warning(f"  IP field '{ip_field}' not found or empty. Falling back to status grouping.")
+            groupBy = 'status'  # Fallback
+        else:
+            # Get unique IPs
+            unique_ips = log_df[ip_field].value_counts()
+            logger.info(f"  Creating traces for {len(unique_ips)} unique IPs")
+
+            # Define color palette for IPs
+            colors = [
+                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+                '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+                '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5'
+            ]
+
+            # Add scatter plot for each IP
+            for idx, (ip, count) in enumerate(unique_ips.items()):
+                subset = log_df[log_df[ip_field] == ip]
+
+                # Pre-format hover text
+                hover_text = []
+                for _, row in subset.iterrows():
+                    text = f"Target IP: {ip}<br>"
+                    text += f"Time: {row[time_field]}<br>"
+                    if url_field and url_field in row and pd.notna(row[url_field]):
+                        url_display = str(row[url_field])
+                        if len(url_display) > 50:
+                            url_display = url_display[:47] + '...'
+                        text += f"URL: {url_display}<br>"
+                    if rt_field and rt_field in row and pd.notna(row[rt_field]):
+                        text += f"Response Time: {row[rt_field]:.2f} ms<br>"
+                    if status_field and status_field in row and pd.notna(row[status_field]):
+                        try:
+                            text += f"Status: {int(row[status_field])}"
+                        except:
+                            text += f"Status: {row[status_field]}"
+                    hover_text.append(text)
+
+                # Add trace - use status code colors for each point
+                if rt_field and rt_field in subset.columns:
+                    # Convert datetime to avoid FutureWarning
+                    x_values = subset[time_field].values if hasattr(subset[time_field], 'values') else subset[time_field]
+                    y_values = subset[rt_field].values if hasattr(subset[rt_field], 'values') else subset[rt_field]
+
+                    fig.add_trace(go.Scattergl(
+                        x=x_values,
+                        y=y_values,
+                        mode='markers',
+                        name=f"{ip} ({count})",
+                        marker=dict(
+                            color=subset['color'].tolist(),  # Use status code colors
+                            size=4,
+                            opacity=0.6,
+                            line=dict(width=0)
+                        ),
+                        hovertext=hover_text,
+                        hoverinfo='text'
+                    ))
+
+    if groupBy == 'status':
+        # Group by status code (original behavior)
+        for color_name, color_val in [('green', 'Success (2xx)'), ('blue', 'Redirect (3xx)'),
+                                       ('orange', 'Client Error (4xx)'), ('red', 'Server Error (5xx)'),
+                                       ('gray', 'Unknown')]:
+            mask = log_df['color'] == color_name
+            if mask.any():
+                subset = log_df[mask]
+                # Pre-format hover text efficiently
+                hover_text = []
+                for _, row in subset.iterrows():
+                    text = f"Time: {row[time_field]}<br>"
+                    if url_field and url_field in row and pd.notna(row[url_field]):
+                        text += f"URL: {row[url_field]}<br>"
+                    if rt_field and rt_field in row and pd.notna(row[rt_field]):
+                        text += f"Response Time: {row[rt_field]:.2f} ms<br>"
+                    if status_field and status_field in row and pd.notna(row[status_field]):
+                        try:
+                            text += f"Status: {int(row[status_field])}"
+                        except:
+                            text += f"Status: {row[status_field]}"
+                    hover_text.append(text)
+
+                # Use Scattergl for WebGL rendering (much faster for large datasets)
+                # Only plot if rt_field is available
+                if rt_field and rt_field in subset.columns:
+                    # Convert datetime to avoid FutureWarning
+                    x_values = subset[time_field].values if hasattr(subset[time_field], 'values') else subset[time_field]
+                    y_values = subset[rt_field].values if hasattr(subset[rt_field], 'values') else subset[rt_field]
+
+                    fig.add_trace(go.Scattergl(
+                    x=x_values,
+                    y=y_values,
                     mode='markers',
                     name=color_val,
                     marker=dict(
                         color=color_name,
-                        size=4,
+                        size=4,  # Slightly smaller for better performance
                         opacity=0.6,
-                        line=dict(width=0)
-                ),
-                hovertext=hover_text,
-                hoverinfo='text'
-            ))
+                        line=dict(width=0)  # No border for better performance
+                        ),
+                        hovertext=hover_text,
+                        hoverinfo='text'
+                    ))
+                else:
+                    # If no response time, plot by count
+                    # Convert datetime to avoid FutureWarning
+                    x_values = subset[time_field].values if hasattr(subset[time_field], 'values') else subset[time_field]
+
+                    fig.add_trace(go.Scattergl(
+                        x=x_values,
+                        y=[1] * len(subset),  # Dummy y-axis
+                        mode='markers',
+                        name=color_val,
+                        marker=dict(
+                            color=color_name,
+                            size=4,
+                            opacity=0.6,
+                            line=dict(width=0)
+                    ),
+                    hovertext=hover_text,
+                    hoverinfo='text'
+                ))
     
     # Collect trace names and colors for checkbox filter
     trace_names = []
     trace_colors = []
     for trace in fig.data:
         trace_names.append(trace.name)
-        trace_colors.append(trace.marker.color)
+        # Handle both array colors (URL/IP grouping) and string colors (status grouping)
+        marker_color = trace.marker.color
+        if isinstance(marker_color, (list, tuple)):
+            # For URL/IP grouping, use the first point's color or a default
+            trace_colors.append(marker_color[0] if marker_color else 'gray')
+        else:
+            # For status grouping, use the color directly
+            trace_colors.append(marker_color)
 
     # Update layout with checkbox filter enhancements
+    # Create title based on groupBy mode
+    if groupBy == 'url':
+        title_text = f'XLog - Response Time Scatter Plot (Grouped by URL Pattern)'
+        filter_label = "Filter URL Patterns:"
+    elif groupBy == 'ip':
+        title_text = f'XLog - Response Time Scatter Plot (Grouped by Target IP)'
+        filter_label = "Filter Target IPs:"
+    else:
+        status_field_display = status_field.replace('_', ' ').title()
+        title_text = f'XLog - Response Time Scatter Plot (Status: {status_field_display})'
+        filter_label = "Filter Status Codes:"
+
+    if filtered_url_count > 0:
+        title_text += f' - {filtered_url_count} URL filter(s) applied'
+
     fig.update_layout(
-        title='XLog - Response Time Scatter Plot',
+        title=title_text,
         xaxis_title='Time',
         yaxis_title='Response Time (ms)',
         hovermode='closest',
@@ -998,7 +1275,7 @@ def generateXlog(
         patterns=trace_names,
         colors=trace_colors,
         div_id=plotly_div_id,
-        filter_label="Filter Status Codes:",
+        filter_label=filter_label,
         hover_format="xlog"
     )
 
@@ -1039,10 +1316,21 @@ def generateXlog(
     logger.info(f"  ✓ filterCheckboxPanel inserted for XLog")
     logger.info(f"  ✓ hoverTextDisplay inserted for XLog")
 
-    return {
+    result = {
         'filePath': str(output_file.resolve()),
-        'totalTransactions': len(log_df)
+        'totalTransactions': len(log_df),
+        'originalTransactions': original_total_count,
+        'statusCodeField': status_field,
+        'filteredUrls': filtered_url_count,
+        'groupBy': groupBy
     }
+
+    if groupBy == 'url' and 'uri_pattern' in log_df.columns:
+        result['uniquePatterns'] = int(log_df['uri_pattern'].nunique())
+    elif groupBy == 'ip' and ip_field in log_df.columns:
+        result['uniqueIPs'] = int(log_df[ip_field].nunique())
+
+    return result
 
 
 # ============================================================================

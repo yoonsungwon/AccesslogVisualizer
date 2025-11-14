@@ -174,7 +174,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="generateXlog",
-            description="XLog (response time scatter plot) 시각화를 생성합니다.",
+            description="XLog (response time scatter plot) 시각화를 생성합니다. Status code별 또는 URL 패턴별 그룹핑 지원.",
             inputSchema={
                 "type": "object",
                 "required": ["inputFile", "logFormatFile"],
@@ -192,6 +192,28 @@ async def list_tools() -> list[Tool]:
                         "enum": ["html"],
                         "description": "출력 포맷",
                         "default": "html"
+                    },
+                    "statusCodeField": {
+                        "type": "string",
+                        "enum": ["elb_status_code", "target_status_code"],
+                        "description": "색상 구분에 사용할 status code 필드 (기본값: elb_status_code)",
+                        "default": "elb_status_code"
+                    },
+                    "urlPatterns": {
+                        "type": "string",
+                        "description": "필터링할 URL 패턴 (쉼표로 구분, 예: '/api/*,/admin/*')",
+                        "default": ""
+                    },
+                    "groupBy": {
+                        "type": "string",
+                        "enum": ["status", "url", "ip"],
+                        "description": "그룹핑 방법 - 'status' (status code별), 'url' (URL 패턴별), 또는 'ip' (target IP별)",
+                        "default": "status"
+                    },
+                    "patternsFile": {
+                        "type": "string",
+                        "description": "URL 그룹핑에 사용할 패턴 파일 경로 (groupBy='url'일 때 사용, 미지정시 자동 탐색)",
+                        "default": ""
                     }
                 }
             }
@@ -382,10 +404,15 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Sequence[TextConten
             )]
         
         elif name == "generateXlog":
+            patterns_file = arguments.get("patternsFile", "")
             result = generateXlog(
                 arguments["inputFile"],
                 arguments["logFormatFile"],
-                arguments.get("outputFormat", "html")
+                arguments.get("outputFormat", "html"),
+                arguments.get("statusCodeField", "elb_status_code"),
+                arguments.get("urlPatterns", ""),
+                arguments.get("groupBy", "status"),
+                patterns_file if patterns_file else None
             )
             return [TextContent(
                 type="text",
