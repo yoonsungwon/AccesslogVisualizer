@@ -46,6 +46,7 @@ from data_processor import (
 from data_visualizer import (
     generateXlog,
     generateRequestPerURI,
+    generateRequestPerTarget,
     generateMultiMetricDashboard
 )
 
@@ -258,6 +259,40 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="generateRequestPerTarget",
+            description="Request Count per Target time-series 시각화를 생성합니다. Target은 target_ip:target_port 조합으로 표시됩니다.",
+            inputSchema={
+                "type": "object",
+                "required": ["inputFile", "logFormatFile"],
+                "properties": {
+                    "inputFile": {
+                        "type": "string",
+                        "description": "입력 로그 파일 경로"
+                    },
+                    "logFormatFile": {
+                        "type": "string",
+                        "description": "로그 포맷 파일 경로"
+                    },
+                    "outputFormat": {
+                        "type": "string",
+                        "enum": ["html"],
+                        "description": "출력 포맷",
+                        "default": "html"
+                    },
+                    "topN": {
+                        "type": "integer",
+                        "description": "표시할 상위 Target 수",
+                        "default": 20
+                    },
+                    "interval": {
+                        "type": "string",
+                        "description": "집계 시간 간격 (예: '10s', '1min', '5min', '1h')",
+                        "default": "10s"
+                    }
+                }
+            }
+        ),
+        Tool(
             name="generateMultiMetricDashboard",
             description="다중 메트릭 대시보드를 생성합니다.",
             inputSchema={
@@ -432,7 +467,20 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Sequence[TextConten
                 type="text",
                 text=json.dumps(result, indent=2, ensure_ascii=False)
             )]
-        
+
+        elif name == "generateRequestPerTarget":
+            result = generateRequestPerTarget(
+                arguments["inputFile"],
+                arguments["logFormatFile"],
+                arguments.get("outputFormat", "html"),
+                arguments.get("topN", 20),
+                arguments.get("interval", "10s")
+            )
+            return [TextContent(
+                type="text",
+                text=json.dumps(result, indent=2, ensure_ascii=False)
+            )]
+
         elif name == "generateMultiMetricDashboard":
             result = generateMultiMetricDashboard(
                 arguments["inputFile"],

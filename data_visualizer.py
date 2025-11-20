@@ -268,7 +268,7 @@ def _generate_interactive_enhancements(
     ]
 
     # Create checkbox HTML for each pattern
-    checkbox_html = '<div id="filterCheckboxPanel" style="position: fixed; right: 20px; top: 80px; width: 220px; max-height: 500px; overflow-y: auto; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #ccc; border-radius: 5px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.1); color: #444; font-family: \'Open Sans\', verdana, arial, sans-serif;">'
+    checkbox_html = '<div id="filterCheckboxPanel" style="position: fixed; right: 10px; top: 80px; width: 180px; max-height: 500px; overflow-y: auto; background: rgba(255,255,255,0.95); padding: 8px; border: 1px solid #ccc; border-radius: 5px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.1); color: #444; font-family: \'Open Sans\', verdana, arial, sans-serif; font-size: 11px;">'
     checkbox_html += f'<div style="font-weight: bold; margin-bottom: 10px; font-size: 14px;">{filter_label}</div>'
     checkbox_html += '<div style="margin-bottom: 8px; position: relative;"><input type="text" id="patternFilterInput" placeholder="Regex filter..." style="width: 100%; padding: 4px 24px 4px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; box-sizing: border-box;"><span id="clearFilterBtn" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 14px; color: #999; display: none;" title="Clear filter">×</span></div>'
     checkbox_html += '<div style="margin-bottom: 5px;"><label style="color: #444;"><input type="checkbox" id="checkAll" checked> <strong>All</strong></label></div>'
@@ -750,7 +750,8 @@ def generateXlog(
     statusCodeField: str = 'elb_status_code',
     urlPatterns: str = '',
     groupBy: str = 'status',
-    patternsFile: Optional[str] = None
+    patternsFile: Optional[str] = None,
+    timeField: str = 'time'
 ) -> Dict[str, Any]:
     """
     Generate XLog (response time scatter plot) visualization.
@@ -763,6 +764,7 @@ def generateXlog(
         urlPatterns (str): Comma-separated URL patterns to filter (optional, e.g., '/api/*,/admin/*')
         groupBy (str): Grouping method - 'status' (by status code), 'url' (by URL pattern), or 'ip' (by target IP)
         patternsFile (str): Pattern rules file for URL grouping (used when groupBy='url')
+        timeField (str): Time field to use ('time' or 'request_creation_time', default: 'time')
 
     Returns:
         dict: {
@@ -815,7 +817,8 @@ def generateXlog(
         format_info = json.load(f)
 
     # Get field mappings to determine required columns
-    time_field = format_info['fieldMap'].get('timestamp', 'time')
+    # Use user-selected timeField parameter
+    time_field = timeField
     url_field = format_info['fieldMap'].get('url', 'request_url')
     # Use the user-selected status code field
     status_field = statusCodeField
@@ -824,7 +827,7 @@ def generateXlog(
 
     # Memory optimization: Parse with only required columns
     from data_parser import parse_log_file_with_format
-    time_field_candidates = [time_field, 'time', 'timestamp', '@timestamp', 'datetime']
+    time_field_candidates = [time_field, 'time', 'request_creation_time', 'timestamp', '@timestamp', 'datetime']
     url_field_candidates = [url_field, 'request_url', 'url', 'request_uri', 'uri']
     # Include both status code fields in candidates
     status_field_candidates = [status_field, 'elb_status_code', 'target_status_code', 'status_code', 'status', 'http_status']
@@ -1343,22 +1346,24 @@ def generateRequestPerURI(
     outputFormat: str = 'html',
     topN: int = 20,
     interval: str = '10s',
-    patternsFile: Optional[str] = None
+    patternsFile: Optional[str] = None,
+    timeField: str = 'time'
 ) -> Dict[str, Any]:
     """
     Generate Request Count per URI time-series visualization.
-    
+
     Args:
         inputFile (str): Input log file path
         logFormatFile (str): Log format JSON file path
         outputFormat (str): Output format ('html' only supported)
         topN (int): Number of top URI patterns to display (default: 20)
-        interval (str): Time interval for aggregation (default: '10s'). 
+        interval (str): Time interval for aggregation (default: '10s').
                        Examples: '1s', '10s', '1min', '5min', '1h'
         patternsFile (str, optional): Path to JSON file containing URL patterns.
                                     If provided, uses these patterns for visualization.
                                     If not provided, extracts top N patterns and saves to file.
-        
+        timeField (str): Time field to use ('time' or 'request_creation_time', default: 'time')
+
     Returns:
         dict: {
             'filePath': str (requestcnt_*.html),
@@ -1423,7 +1428,8 @@ def generateRequestPerURI(
             top_patterns = None
 
     # Get field mappings to determine required columns
-    time_field = format_info['fieldMap'].get('timestamp', 'time')
+    # Use user-selected timeField parameter
+    time_field = timeField
     url_field = format_info['fieldMap'].get('url', 'request_url')
 
     # Parse log file with column selection for memory optimization
@@ -2312,7 +2318,8 @@ def generateReceivedBytesPerURI(
     outputFormat: str = 'html',
     topN: int = 10,
     interval: str = '10s',
-    patternsFile: Optional[str] = None
+    patternsFile: Optional[str] = None,
+    timeField: str = 'time'
 ) -> Dict[str, Any]:
     """
     Generate Received Bytes per URI time-series visualization with Sum and Average Top N.
@@ -2327,6 +2334,7 @@ def generateReceivedBytesPerURI(
         patternsFile (str, optional): Path to JSON file containing URL patterns.
                                     If provided, uses these patterns for visualization.
                                     If not provided, extracts top N patterns and saves to file.
+        timeField (str): Time field to use ('time' or 'request_creation_time', default: 'time')
 
     Returns:
         dict: {
@@ -2415,7 +2423,8 @@ def generateReceivedBytesPerURI(
     log_df = _optimize_dataframe_dtypes(log_df, verbose=True)
 
     # Get field mappings using FieldMapper
-    time_field = FieldMapper.find_field(log_df, 'time', format_info)
+    # Use user-selected timeField parameter
+    time_field = timeField
     url_field = FieldMapper.find_field(log_df, 'url', format_info)
 
     # For bytes field, provide possible alternative names
@@ -2994,7 +3003,8 @@ def generateSentBytesPerURI(
     outputFormat: str = 'html',
     topN: int = 10,
     interval: str = '10s',
-    patternsFile: Optional[str] = None
+    patternsFile: Optional[str] = None,
+    timeField: str = 'time'
 ) -> Dict[str, Any]:
     """
     Generate Sent Bytes per URI time-series visualization with Sum and Average Top N.
@@ -3009,6 +3019,7 @@ def generateSentBytesPerURI(
         patternsFile (str, optional): Path to JSON file containing URL patterns.
                                     If provided, uses these patterns for visualization.
                                     If not provided, extracts top N patterns and saves to file.
+        timeField (str): Time field to use ('time' or 'request_creation_time', default: 'time')
 
     Returns:
         dict: {
@@ -3094,7 +3105,8 @@ def generateSentBytesPerURI(
         raise ValueError("No data to visualize")
 
     # Get field mappings using FieldMapper
-    time_field = FieldMapper.find_field(log_df, 'time', format_info)
+    # Use user-selected timeField parameter
+    time_field = timeField
     url_field = FieldMapper.find_field(log_df, 'url', format_info)
 
     # For bytes field, provide possible alternative names for SENT bytes
@@ -3670,16 +3682,18 @@ def generateSentBytesPerURI(
 def generateMultiMetricDashboard(
     inputFile: str,
     logFormatFile: str,
-    outputFormat: str = 'html'
+    outputFormat: str = 'html',
+    timeField: str = 'time'
 ) -> Dict[str, Any]:
     """
     Generate a comprehensive dashboard with multiple metrics.
-    
+
     Args:
         inputFile (str): Input log file path
         logFormatFile (str): Log format JSON file path
         outputFormat (str): Output format ('html' only supported)
-        
+        timeField (str): Time field to use ('time' or 'request_creation_time', default: 'time')
+
     Returns:
         dict: {
             'filePath': str (dashboard_*.html),
@@ -3696,9 +3710,10 @@ def generateMultiMetricDashboard(
     
     if log_df.empty:
         raise ValueError("No data to visualize")
-    
+
     # Get field mappings
-    time_field = format_info['fieldMap'].get('timestamp', 'time')
+    # Use user-selected timeField parameter
+    time_field = timeField
     status_field = format_info['fieldMap'].get('status', 'elb_status_code')
     rt_field = format_info['fieldMap'].get('responseTime', 'target_processing_time')
     
@@ -4195,7 +4210,8 @@ def generateProcessingTimePerURI(
     metric: str = 'avg',
     topN: int = 10,
     interval: str = '1min',
-    patternsFile: Optional[str] = None
+    patternsFile: Optional[str] = None,
+    timeField: str = 'time'
 ) -> Dict[str, Any]:
     """
     Generate Processing Time per URI time-series visualization.
@@ -4221,6 +4237,7 @@ def generateProcessingTimePerURI(
         patternsFile (str, optional): Path to JSON file containing URL patterns.
                                     If provided, uses these patterns for visualization.
                                     If not provided, extracts top N patterns by processing time.
+        timeField (str): Time field to use ('time' or 'request_creation_time', default: 'time')
 
     Returns:
         dict: {
@@ -4306,7 +4323,8 @@ def generateProcessingTimePerURI(
         raise ValueError("No data to visualize")
 
     # Get field mappings
-    time_field = format_info['fieldMap'].get('timestamp', 'time')
+    # Use user-selected timeField parameter
+    time_field = timeField
     url_field = format_info['fieldMap'].get('url', 'request_url')
 
     # Check if processing time field exists
@@ -4574,12 +4592,596 @@ def generateProcessingTimePerURI(
     }
 
 
+def generateRequestPerTarget(
+    inputFile: str,
+    logFormatFile: str,
+    outputFormat: str = 'html',
+    topN: int = 20,
+    interval: str = '10s',
+    timeField: str = 'time'
+) -> Dict[str, Any]:
+    """
+    Generate Request Count per Target time-series visualization.
+
+    Args:
+        inputFile (str): Input log file path
+        logFormatFile (str): Log format JSON file path
+        outputFormat (str): Output format ('html' only supported)
+        topN (int): Number of top targets to display (default: 20)
+        interval (str): Time interval for aggregation (default: '10s').
+                       Examples: '1s', '10s', '1min', '5min', '1h'
+        timeField (str): Time field to use ('time' or 'request_creation_time', default: 'time')
+
+    Returns:
+        dict: {
+            'filePath': str (requestcnt_target_*.html),
+            'totalTransactions': int,
+            'targetsDisplayed': int
+        }
+    """
+    if outputFormat != 'html':
+        raise ValueError("Only 'html' output format is currently supported")
+
+    # Normalize interval parameter to pandas-compatible format
+    interval = _normalize_interval(interval)
+
+    # Load log format
+    with open(logFormatFile, 'r', encoding='utf-8') as f:
+        format_info = json.load(f)
+
+    # Determine input path for output file location
+    input_path = Path(inputFile)
+
+    # Get field mappings to determine required columns
+    # Use user-selected timeField parameter
+    time_field = timeField
+
+    # For target, we need target_ip and target_port fields
+    # Try to find them in fieldMap, or use common field names
+    target_ip_field = format_info['fieldMap'].get('target_ip', 'target_ip')
+    target_port_field = format_info['fieldMap'].get('target_port', 'target_port')
+
+    # Parse log file with column selection for memory optimization
+    # Only load the columns we actually need (time + target_ip + target_port)
+    from data_parser import parse_log_file_with_format
+    required_columns = [time_field, target_ip_field, target_port_field]
+    log_df = parse_log_file_with_format(
+        inputFile,
+        logFormatFile,
+        columns_to_load=required_columns
+    )
+
+    if log_df.empty:
+        raise ValueError("No data to visualize")
+
+    # Optimize DataFrame memory usage
+    log_df = _optimize_dataframe_dtypes(log_df, verbose=True)
+
+    # Debug: Check available columns in DataFrame (for ALB parsing)
+    if format_info.get('patternType') == 'ALB':
+        available_columns = list(log_df.columns)
+        logger.info(f"  Available columns in DataFrame: {len(available_columns)} columns")
+
+        # If target_ip_field is not found, try to find it in available columns
+        if target_ip_field not in available_columns:
+            possible_target_ip_fields = ['target_ip', 'target', 'backend_ip']
+            for field in possible_target_ip_fields:
+                if field in available_columns:
+                    logger.info(f"  Using '{field}' as target IP field (instead of '{target_ip_field}')")
+                    target_ip_field = field
+                    break
+
+        # If target_port_field is not found, try to find it
+        if target_port_field not in available_columns:
+            possible_target_port_fields = ['target_port', 'backend_port', 'port']
+            for field in possible_target_port_fields:
+                if field in available_columns:
+                    logger.info(f"  Using '{field}' as target port field (instead of '{target_port_field}')")
+                    target_port_field = field
+                    break
+
+        # If time_field is not found, try to find it
+        if time_field not in available_columns:
+            possible_time_fields = ['time', 'timestamp', '@timestamp', 'datetime']
+            for field in possible_time_fields:
+                if field in available_columns:
+                    logger.info(f"  Using '{field}' as time field (instead of '{time_field}')")
+                    time_field = field
+                    break
+
+    # Check if required fields exist
+    if target_ip_field not in log_df.columns:
+        raise ValueError(f"Target IP field '{target_ip_field}' not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
+    if target_port_field not in log_df.columns:
+        raise ValueError(f"Target port field '{target_port_field}' not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
+    if time_field not in log_df.columns:
+        raise ValueError(f"Time field '{time_field}' not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
+
+    # Convert types
+    log_df[time_field] = pd.to_datetime(log_df[time_field], errors='coerce')
+    log_df = log_df.dropna(subset=[time_field])
+
+    # Create target field by combining target_ip and target_port
+    # Handle cases where target_ip or target_port might be missing/null
+    log_df['target'] = log_df.apply(
+        lambda row: f"{row[target_ip_field]}:{row[target_port_field]}"
+        if pd.notna(row[target_ip_field]) and pd.notna(row[target_port_field])
+        else 'Unknown',
+        axis=1
+    )
+
+    # Group by time interval and target
+    log_df['time_bucket'] = log_df[time_field].dt.floor(interval)
+
+    # Get top N targets by count
+    target_counts = log_df['target'].value_counts()
+    top_targets = target_counts.head(topN).index.tolist()
+
+    # Mark targets not in top_targets as "Others"
+    log_df.loc[~log_df['target'].isin(top_targets) & (log_df['target'] != 'Unknown'), 'target'] = 'Others'
+
+    # Aggregate by time bucket and target
+    pivot_df = log_df.groupby(['time_bucket', 'target']).size().reset_index(name='count')
+
+    # Pivot to wide format for easier plotting
+    pivot_wide = pivot_df.pivot(index='time_bucket', columns='target', values='count').fillna(0)
+
+    # Sort columns by total count (descending)
+    column_totals = pivot_wide.sum().sort_values(ascending=False)
+    pivot_wide = pivot_wide[column_totals.index]
+
+    # Explicit memory cleanup
+    del log_df
+    gc.collect()
+
+    # Generate output file path
+    timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
+    output_filename = f'requestcnt_target_{timestamp}.html'
+    output_file = input_path.parent / output_filename
+
+    # Create Plotly figure
+    fig = go.Figure()
+
+    # Plotly's default color palette
+    plotly_default_colors = [
+        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+        '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+        '#c49c94', '#f7b6d3', '#c7c7c7', '#dbdb8d', '#9edae5',
+        '#393b79', '#5254a3', '#6b6ecf', '#9c9ede', '#637939',
+        '#8ca252', '#b5cf6b', '#cedb9c', '#8c6d31', '#bd9e39',
+        '#e7ba52', '#e7cb94', '#843c39', '#ad494a', '#d6616b'
+    ]
+
+    # Add traces for each target
+    trace_names = []
+    trace_colors = []
+    for idx, target in enumerate(pivot_wide.columns):
+        color = plotly_default_colors[idx % len(plotly_default_colors)]
+
+        fig.add_trace(go.Scatter(
+            x=pivot_wide.index,
+            y=pivot_wide[target],
+            name=target,
+            mode='lines',
+            line=dict(color=color, width=2),
+            hovertemplate=(
+                f'<b>{target}</b><br>' +
+                'Time: %{x|%Y-%m-%d %H:%M:%S}<br>' +
+                'Requests: %{y:,.0f}<br>' +
+                '<extra></extra>'
+            )
+        ))
+
+        trace_names.append(target)
+        trace_colors.append(color)
+
+    # Update layout
+    total_transactions = int(pivot_wide.sum().sum())
+    fig.update_layout(
+        title=dict(
+            text=f'Request Count per Target (Top {topN}, Interval: {interval})<br>' +
+                 f'<sub>Total Transactions: {total_transactions:,} | Input: {input_path.name}</sub>',
+            x=0.5,
+            xanchor='center'
+        ),
+        xaxis=dict(
+            title='Time',
+            rangeslider=dict(visible=True),
+            type='date'
+        ),
+        yaxis=dict(
+            title='Request Count',
+            gridcolor='lightgray'
+        ),
+        hovermode='x unified',
+        legend=dict(
+            orientation='v',
+            yanchor='top',
+            y=1,
+            xanchor='left',
+            x=1.02,
+            bgcolor='rgba(255, 255, 255, 0.8)',
+            bordercolor='gray',
+            borderwidth=1
+        ),
+        height=600,
+        template='plotly_white',
+        showlegend=True,
+        margin=dict(r=220)  # Add right margin for checkbox panel
+    )
+
+    # Generate unique div ID for this chart
+    plotly_div_id = f'plotly-div-{timestamp}'
+
+    # Save to HTML with CDN
+    import plotly.io as pio
+    pio.write_html(
+        fig,
+        str(output_file),
+        include_plotlyjs='cdn',
+        div_id=plotly_div_id,
+        config={
+            'displayModeBar': True,
+            'displaylogo': False,
+            'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+            'toImageButtonOptions': {
+                'format': 'png',
+                'filename': f'requestcnt_target_{timestamp}',
+                'height': 600,
+                'width': 1200,
+                'scale': 2
+            }
+        }
+    )
+
+    # Generate interactive enhancements (checkbox filter, hover text, vertical zoom)
+    checkbox_html, hover_text_html, js_code = _generate_interactive_enhancements(
+        patterns=trace_names,
+        colors=trace_colors,
+        div_id=plotly_div_id,
+        filter_label="Filter Targets:",
+        hover_format="request_count"
+    )
+
+    # Read the generated HTML and insert enhancements
+    with open(output_file, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+
+    # Extract the actual div ID from HTML (Plotly may modify it)
+    div_id_match = re.search(r'<div id="([^"]+)"[^>]*class="[^"]*plotly[^"]*"', html_content)
+    actual_div_id = div_id_match.group(1) if div_id_match else plotly_div_id
+
+    # Update js_code with actual div ID
+    js_code = js_code.replace(f'"{plotly_div_id}"', f'"{actual_div_id}"')
+
+    # Insert checkbox HTML, hover text display, and JavaScript before closing body tag
+    inserted = False
+    if '</body>' in html_content:
+        html_content = html_content.rsplit('</body>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_html + hover_text_html + js_code + '</body>' + html_content[1]
+            inserted = True
+
+    # Fallback: Insert before </html>
+    if not inserted and '</html>' in html_content:
+        html_content = html_content.rsplit('</html>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_html + hover_text_html + js_code + '</html>' + html_content[1]
+            inserted = True
+
+    # Fallback: Append at the end
+    if not inserted:
+        html_content += checkbox_html + hover_text_html + js_code
+
+    # Write modified HTML
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+    logger.info(f"Request count per target visualization saved to {output_file}")
+    logger.info(f"  ✓ filterCheckboxPanel inserted for Target chart")
+    logger.info(f"  ✓ hoverTextDisplay inserted for Target chart")
+
+    # Return result
+    return {
+        'filePath': str(output_file.resolve()),
+        'totalTransactions': total_transactions,
+        'targetsDisplayed': len(top_targets),
+        'interval': interval,
+        'topN': topN
+    }
+
+
+def generateRequestPerClientIP(
+    inputFile: str,
+    logFormatFile: str,
+    outputFormat: str = 'html',
+    topN: int = 20,
+    interval: str = '10s',
+    timeField: str = 'time'
+) -> Dict[str, Any]:
+    """
+    Generate Request Count per Client IP time-series visualization.
+
+    Args:
+        inputFile (str): Input log file path
+        logFormatFile (str): Log format JSON file path
+        outputFormat (str): Output format ('html' only supported)
+        topN (int): Number of top client IPs to display (default: 20)
+        interval (str): Time interval for aggregation (default: '10s').
+                       Examples: '1s', '10s', '1min', '5min', '1h'
+        timeField (str): Time field to use ('time' or 'request_creation_time', default: 'time')
+
+    Returns:
+        dict: {
+            'filePath': str (requestcnt_clientip_*.html),
+            'totalTransactions': int,
+            'clientIPsDisplayed': int
+        }
+    """
+    if outputFormat != 'html':
+        raise ValueError("Only 'html' output format is currently supported")
+
+    # Normalize interval parameter to pandas-compatible format
+    interval = _normalize_interval(interval)
+
+    # Load log format
+    with open(logFormatFile, 'r', encoding='utf-8') as f:
+        format_info = json.load(f)
+
+    # Determine input path for output file location
+    input_path = Path(inputFile)
+
+    # Get field mappings to determine required columns
+    # Use user-selected timeField parameter
+    time_field = timeField
+
+    # Get client IP field from fieldMap or use default
+    client_ip_field = format_info['fieldMap'].get('clientIp', 'client_ip')
+
+    # Parse log file with column selection for memory optimization
+    from data_parser import parse_log_file_with_format
+    required_columns = [time_field, client_ip_field]
+    log_df = parse_log_file_with_format(
+        inputFile,
+        logFormatFile,
+        columns_to_load=required_columns
+    )
+
+    if log_df.empty:
+        raise ValueError("No data to visualize")
+
+    # Optimize DataFrame memory usage
+    log_df = _optimize_dataframe_dtypes(log_df, verbose=True)
+
+    # Debug: Check available columns in DataFrame (for ALB parsing)
+    if format_info.get('patternType') == 'ALB':
+        available_columns = list(log_df.columns)
+        logger.info(f"  Available columns in DataFrame: {len(available_columns)} columns")
+
+        # If client_ip_field is not found, try to find it in available columns
+        if client_ip_field not in available_columns:
+            possible_client_ip_fields = ['client_ip', 'client', 'remote_addr', 'src_ip']
+            for field in possible_client_ip_fields:
+                if field in available_columns:
+                    logger.info(f"  Using '{field}' as client IP field (instead of '{client_ip_field}')")
+                    client_ip_field = field
+                    break
+
+        # If time_field is not found, try to find it
+        if time_field not in available_columns:
+            possible_time_fields = ['time', 'timestamp', '@timestamp', 'datetime', 'request_creation_time']
+            for field in possible_time_fields:
+                if field in available_columns:
+                    logger.info(f"  Using '{field}' as time field (instead of '{time_field}')")
+                    time_field = field
+                    break
+
+    # Check if required fields exist
+    if client_ip_field not in log_df.columns:
+        raise ValueError(f"Client IP field '{client_ip_field}' not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
+    if time_field not in log_df.columns:
+        raise ValueError(f"Time field '{time_field}' not found in DataFrame. Available columns: {list(log_df.columns)[:10]}...")
+
+    # Convert types
+    log_df[time_field] = pd.to_datetime(log_df[time_field], errors='coerce')
+    log_df = log_df.dropna(subset=[time_field])
+
+    # Use client_ip field directly
+    # Convert to string first to handle categorical dtype from optimization
+    log_df['client_ip_display'] = log_df[client_ip_field].astype(str).fillna('Unknown')
+    log_df.loc[log_df['client_ip_display'] == 'nan', 'client_ip_display'] = 'Unknown'
+
+    # Group by time interval and client IP
+    log_df['time_bucket'] = log_df[time_field].dt.floor(interval)
+
+    # Get top N client IPs by count
+    client_ip_counts = log_df['client_ip_display'].value_counts()
+    top_client_ips = client_ip_counts.head(topN).index.tolist()
+
+    # Mark client IPs not in top_client_ips as "Others"
+    mask = ~log_df['client_ip_display'].isin(top_client_ips) & (log_df['client_ip_display'] != 'Unknown')
+    log_df.loc[mask, 'client_ip_display'] = 'Others'
+
+    # Aggregate by time bucket and client IP
+    pivot_df = log_df.groupby(['time_bucket', 'client_ip_display']).size().reset_index(name='count')
+
+    # Pivot to wide format for easier plotting
+    pivot_wide = pivot_df.pivot(index='time_bucket', columns='client_ip_display', values='count').fillna(0)
+
+    # Sort columns by total count (descending)
+    column_totals = pivot_wide.sum().sort_values(ascending=False)
+    pivot_wide = pivot_wide[column_totals.index]
+
+    # Explicit memory cleanup
+    del log_df
+    gc.collect()
+
+    # Generate output file path
+    timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
+    output_filename = f'requestcnt_clientip_{timestamp}.html'
+    output_file = input_path.parent / output_filename
+
+    # Create Plotly figure
+    fig = go.Figure()
+
+    # Plotly's default color palette
+    plotly_default_colors = [
+        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+        '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+        '#c49c94', '#f7b6d3', '#c7c7c7', '#dbdb8d', '#9edae5',
+        '#393b79', '#5254a3', '#6b6ecf', '#9c9ede', '#637939',
+        '#8ca252', '#b5cf6b', '#cedb9c', '#8c6d31', '#bd9e39',
+        '#e7ba52', '#e7cb94', '#843c39', '#ad494a', '#d6616b'
+    ]
+
+    # Add traces for each client IP
+    trace_names = []
+    trace_colors = []
+    for idx, client_ip in enumerate(pivot_wide.columns):
+        color = plotly_default_colors[idx % len(plotly_default_colors)]
+
+        fig.add_trace(go.Scatter(
+            x=pivot_wide.index,
+            y=pivot_wide[client_ip],
+            name=client_ip,
+            mode='lines',
+            line=dict(color=color, width=2),
+            hovertemplate=(
+                f'<b>{client_ip}</b><br>' +
+                'Time: %{x|%Y-%m-%d %H:%M:%S}<br>' +
+                'Requests: %{y:,.0f}<br>' +
+                '<extra></extra>'
+            )
+        ))
+
+        trace_names.append(client_ip)
+        trace_colors.append(color)
+
+    # Update layout
+    total_transactions = int(pivot_wide.sum().sum())
+    fig.update_layout(
+        title=dict(
+            text=f'Request Count per Client IP (Top {topN}, Interval: {interval})<br>' +
+                 f'<sub>Total Transactions: {total_transactions:,} | Input: {input_path.name}</sub>',
+            x=0.5,
+            xanchor='center'
+        ),
+        xaxis=dict(
+            title='Time',
+            rangeslider=dict(visible=True),
+            type='date'
+        ),
+        yaxis=dict(
+            title='Request Count',
+            gridcolor='lightgray'
+        ),
+        hovermode='x unified',
+        legend=dict(
+            orientation='v',
+            yanchor='top',
+            y=1,
+            xanchor='left',
+            x=1.02,
+            bgcolor='rgba(255, 255, 255, 0.8)',
+            bordercolor='gray',
+            borderwidth=1
+        ),
+        height=600,
+        template='plotly_white',
+        showlegend=True,
+        margin=dict(r=220)  # Add right margin for checkbox panel
+    )
+
+    # Generate unique div ID for this chart
+    plotly_div_id = f'plotly-div-{timestamp}'
+
+    # Save to HTML with CDN
+    import plotly.io as pio
+    pio.write_html(
+        fig,
+        str(output_file),
+        include_plotlyjs='cdn',
+        div_id=plotly_div_id,
+        config={
+            'displayModeBar': True,
+            'displaylogo': False,
+            'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+            'toImageButtonOptions': {
+                'format': 'png',
+                'filename': f'requestcnt_clientip_{timestamp}',
+                'height': 600,
+                'width': 1200,
+                'scale': 2
+            }
+        }
+    )
+
+    # Generate interactive enhancements (checkbox filter, hover text, vertical zoom)
+    checkbox_html, hover_text_html, js_code = _generate_interactive_enhancements(
+        patterns=trace_names,
+        colors=trace_colors,
+        div_id=plotly_div_id,
+        filter_label="Filter Client IPs:",
+        hover_format="request_count"
+    )
+
+    # Read the generated HTML and insert enhancements
+    with open(output_file, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+
+    # Extract the actual div ID from HTML (Plotly may modify it)
+    div_id_match = re.search(r'<div id="([^"]+)"[^>]*class="[^"]*plotly[^"]*"', html_content)
+    actual_div_id = div_id_match.group(1) if div_id_match else plotly_div_id
+
+    # Update js_code with actual div ID
+    js_code = js_code.replace(f'"{plotly_div_id}"', f'"{actual_div_id}"')
+
+    # Insert checkbox HTML, hover text display, and JavaScript before closing body tag
+    inserted = False
+    if '</body>' in html_content:
+        html_content = html_content.rsplit('</body>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_html + hover_text_html + js_code + '</body>' + html_content[1]
+            inserted = True
+
+    # Fallback: Insert before </html>
+    if not inserted and '</html>' in html_content:
+        html_content = html_content.rsplit('</html>', 1)
+        if len(html_content) == 2:
+            html_content = html_content[0] + checkbox_html + hover_text_html + js_code + '</html>' + html_content[1]
+            inserted = True
+
+    # Fallback: Append at the end
+    if not inserted:
+        html_content += checkbox_html + hover_text_html + js_code
+
+    # Write modified HTML
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+    logger.info(f"Request count per client IP visualization saved to {output_file}")
+    logger.info(f"  ✓ filterCheckboxPanel inserted for Client IP chart")
+    logger.info(f"  ✓ hoverTextDisplay inserted for Client IP chart")
+
+    # Return result
+    return {
+        'filePath': str(output_file.resolve()),
+        'totalTransactions': total_transactions,
+        'clientIPsDisplayed': len(top_client_ips),
+        'interval': interval,
+        'topN': topN
+    }
+
+
 # Main function for testing
 if __name__ == "__main__":
     print("Data Visualizer Module - MCP Tools")
     print("Available tools:")
     print("  - generateXlog(inputFile, logFormatFile, outputFormat)")
     print("  - generateRequestPerURI(inputFile, logFormatFile, outputFormat)")
+    print("  - generateRequestPerTarget(inputFile, logFormatFile, outputFormat)")
     print("  - generateMultiMetricDashboard(inputFile, logFormatFile, outputFormat)")
     print("  - generateProcessingTimePerURI(inputFile, logFormatFile, outputFormat, ...)")
     print("  - generate_pivot_chart(pivot_df, output_file, chart_type, ...)")

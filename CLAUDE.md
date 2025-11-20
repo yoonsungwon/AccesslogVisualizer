@@ -142,20 +142,27 @@ AccesslogAnalyzer/
 - All filtered data is saved as JSON Lines format for flexibility
 
 **data_visualizer.py** - Interactive Visualizations
-- `generateXlog(inputFile, logFormatFile, outputFormat)`: Creates response time scatter plot with WebGL rendering
-  - **Memory optimization** (NEW): Loads only required columns (time, URL, status, response time) instead of all 34+ fields
-- `generateRequestPerURI(inputFile, logFormatFile, outputFormat, topN, interval, patternsFile)`: Generates time-series chart with interactive checkbox filtering and hover-text clipboard copy
+- **All visualization functions support `timeField` parameter** (NEW): Select between 'time' and 'request_creation_time' for analysis
+- `generateXlog(inputFile, logFormatFile, outputFormat, timeField)`: Creates response time scatter plot with WebGL rendering
+  - **Memory optimization**: Loads only required columns (time, URL, status, response time) instead of all 34+ fields
+- `generateRequestPerURI(inputFile, logFormatFile, outputFormat, topN, interval, patternsFile, timeField)`: Generates time-series chart with interactive checkbox filtering and hover-text clipboard copy
   - **interval parameter**: Supports flexible time interval formats (e.g., '1m', '10s', '1h')
   - Automatically normalizes common abbreviations: '1m' → '1min', '30sec' → '30s'
   - Supported units: s (seconds), min (minutes), h (hours), d (days)
-  - **Memory optimization** (NEW): Column filtering + dtype optimization + explicit memory cleanup
-- `generateReceivedBytesPerURI()` and `generateSentBytesPerURI()`: Byte transfer analysis with memory optimization (NEW)
-- `generateProcessingTimePerURI(inputFile, logFormatFile, outputFormat, processingTimeField, metric, topN, interval, patternsFile)`: Time-series visualization of processing time per URI pattern
+  - **Memory optimization**: Column filtering + dtype optimization + explicit memory cleanup
+- `generateRequestPerTarget(inputFile, logFormatFile, outputFormat, topN, interval, timeField)`: Time-series visualization of request count per target (target_ip:target_port)
+  - Groups requests by backend target servers
+  - Interactive checkbox filtering and IP grouping with status color coding
+- `generateRequestPerClientIP(inputFile, logFormatFile, outputFormat, topN, interval, timeField)`: Time-series visualization of request count per client IP
+  - Groups requests by client source IP
+  - Interactive checkbox filtering with status color coding
+- `generateReceivedBytesPerURI()` and `generateSentBytesPerURI()`: Byte transfer analysis with memory optimization
+- `generateProcessingTimePerURI(inputFile, logFormatFile, outputFormat, processingTimeField, metric, topN, interval, patternsFile, timeField)`: Time-series visualization of processing time per URI pattern
   - **processingTimeField**: Field to analyze (request_processing_time, target_processing_time, response_processing_time)
   - **metric**: Metric to calculate (avg, sum, median, p95, p99, max)
   - Extracts top N patterns by total processing time
   - Interactive time-series chart with zoom, pan, and range slider
-- `generateMultiMetricDashboard(inputFile, logFormatFile, outputFormat)`: Creates comprehensive 3-panel dashboard
+- `generateMultiMetricDashboard(inputFile, logFormatFile, outputFormat, timeField)`: Creates comprehensive 3-panel dashboard
 - **Pattern File Management**:
   - `_get_patterns_file_path(inputFile)`: Returns standardized patterns file path based on input log file (e.g., `patterns_access.log.json`)
   - `_save_or_merge_patterns(patterns_file_path, pattern_rules, metadata)`: Saves or merges pattern rules into a single patterns file, removing duplicates
@@ -193,7 +200,9 @@ Output files follow strict naming patterns for easy identification:
   - Replaces previous timestamped files: `patterns_241111_120000.json`, `patterns_proctime_241111_120000.json`
 - `stats_*.json` - Statistical analysis results
 - `xlog_*.html` - Response time scatter plots
-- `requestcnt_*.html` - Request count visualizations
+- `requestcnt_*.html` - Request count per URI visualizations
+- `requestcnt_target_*.html` - Request count per target visualizations
+- `requestcnt_clientip_*.html` - Request count per client IP visualizations
 - `dashboard_*.html` - Multi-metric dashboards
 
 ### Key Design Patterns

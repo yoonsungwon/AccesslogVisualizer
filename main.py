@@ -1,5 +1,6 @@
-#!/usr/bin/python3
+#!/mnt/c/bucket/AccesslogAnalyzer/venv/bin/python3
 # -*- coding: utf-8 -*-
+###!/usr/bin/python3
 """
 Main script for Access Log Analyzer - MCP Tool-based Architecture
 
@@ -27,6 +28,8 @@ from data_processor import (
 from data_visualizer import (
     generateXlog,
     generateRequestPerURI,
+    generateRequestPerTarget,
+    generateRequestPerClientIP,
     generateMultiMetricDashboard,
     generateReceivedBytesPerURI,
     generateSentBytesPerURI,
@@ -41,6 +44,29 @@ def print_banner():
     print(" Version 1.0")
     print("="*70)
     print()
+
+
+def select_time_field():
+    """
+    Prompt user to select time field for analysis.
+
+    Returns:
+        str: Selected time field ('time' or 'request_creation_time')
+    """
+    print("\nSelect time field for analysis:")
+    print("  1. time (default)")
+    print("  2. request_creation_time")
+    time_choice = input("Time field (1-2, default: 1): ").strip()
+
+    time_map = {
+        '1': 'time',
+        '2': 'request_creation_time',
+        '': 'time'  # default
+    }
+
+    time_field = time_map.get(time_choice, 'time')
+    print(f"  ✓ Selected time field: {time_field}")
+    return time_field
 
 
 def interactive_menu(log_file=None):
@@ -89,11 +115,13 @@ def interactive_menu(log_file=None):
         print("  10. Generate Received Bytes per URI (Sum & Average)")
         print("  11. Generate Sent Bytes per URI (Sum & Average)")
         print("  12. Generate Processing Time per URI (NEW)")
-        print("  13. Run example pipeline")
+        print("  13. Generate Request Count per Target (NEW)")
+        print("  14. Generate Request Count per Client IP (NEW)")
+        print("  15. Run example pipeline")
         print("  0. Exit")
         print("="*70)
 
-        choice = input("\nSelect operation (0-13): ").strip()
+        choice = input("\nSelect operation (0-15): ").strip()
 
         if choice == '0':
             print("\nExiting. Goodbye!")
@@ -123,6 +151,10 @@ def interactive_menu(log_file=None):
         elif choice == '12':
             generate_processing_time(log_file, log_format_file)
         elif choice == '13':
+            generate_request_per_target(log_file, log_format_file)
+        elif choice == '14':
+            generate_request_per_client_ip(log_file, log_format_file)
+        elif choice == '15':
             run_example_pipeline(log_file, log_format_file)
         else:
             print("Invalid choice. Please try again.")
@@ -365,8 +397,11 @@ def generate_xlog_viz(log_file, log_format_file):
     print("    Leave empty to show all URLs")
     url_patterns = input("\n  URL patterns: ").strip()
 
+    # Select time field
+    time_field = select_time_field()
+
     try:
-        result = generateXlog(log_file, log_format_file, 'html', status_field, url_patterns, group_by, patterns_file)
+        result = generateXlog(log_file, log_format_file, 'html', status_field, url_patterns, group_by, patterns_file, time_field)
         print(f"\n✓ XLog generated:")
         print(f"  Grouping method: {result['groupBy']}")
         if result['groupBy'] == 'url' and 'uniquePatterns' in result:
@@ -455,14 +490,18 @@ def generate_request_cnt(log_file, log_format_file):
     interval_input = input("Time interval for aggregation (default: 10s, examples: 1s, 10s, 1min, 5min, 1h): ").strip()
     interval = interval_input if interval_input else '10s'
 
+    # Select time field
+    time_field = select_time_field()
+
     try:
         result = generateRequestPerURI(
-            log_file, 
-            log_format_file, 
-            'html', 
-            topN=top_n, 
+            log_file,
+            log_format_file,
+            'html',
+            topN=top_n,
             interval=interval,
-            patternsFile=patterns_file
+            patternsFile=patterns_file,
+            timeField=time_field
         )
         print(f"\n✓ Request Count chart generated:")
         print(f"  Total transactions: {result['totalTransactions']}")
@@ -486,8 +525,11 @@ def generate_dashboard(log_file, log_format_file):
     """Generate comprehensive dashboard"""
     print("\n--- Generate Dashboard ---")
 
+    # Select time field
+    time_field = select_time_field()
+
     try:
-        result = generateMultiMetricDashboard(log_file, log_format_file, 'html')
+        result = generateMultiMetricDashboard(log_file, log_format_file, 'html', time_field)
         print(f"\n✓ Dashboard generated:")
         print(f"  Total transactions: {result['totalTransactions']}")
         print(f"  Output file: {result['filePath']}")
@@ -565,6 +607,9 @@ def generate_received_bytes(log_file, log_format_file):
     interval_input = input("Time interval for aggregation (default: 10s, examples: 1s, 10s, 1min, 5min, 1h): ").strip()
     interval = interval_input if interval_input else '10s'
 
+    # Select time field
+    time_field = select_time_field()
+
     try:
         result = generateReceivedBytesPerURI(
             log_file,
@@ -572,7 +617,8 @@ def generate_received_bytes(log_file, log_format_file):
             'html',
             topN=top_n,
             interval=interval,
-            patternsFile=patterns_file
+            patternsFile=patterns_file,
+            timeField=time_field
         )
         print(f"\n✓ Received Bytes chart generated:")
         print(f"  Total transactions: {result['totalTransactions']}")
@@ -661,6 +707,9 @@ def generate_sent_bytes(log_file, log_format_file):
     interval_input = input("Time interval for aggregation (default: 10s, examples: 1s, 10s, 1min, 5min, 1h): ").strip()
     interval = interval_input if interval_input else '10s'
 
+    # Select time field
+    time_field = select_time_field()
+
     try:
         result = generateSentBytesPerURI(
             log_file,
@@ -668,7 +717,8 @@ def generate_sent_bytes(log_file, log_format_file):
             'html',
             topN=top_n,
             interval=interval,
-            patternsFile=patterns_file
+            patternsFile=patterns_file,
+            timeField=time_field
         )
         print(f"\n✓ Sent Bytes chart generated:")
         print(f"  Total transactions: {result['totalTransactions']}")
@@ -793,6 +843,9 @@ def generate_processing_time(log_file, log_format_file):
     interval_input = input("Time interval for aggregation (default: 1min, examples: 1s, 10s, 1min, 5min, 1h): ").strip()
     interval = interval_input if interval_input else '1min'
 
+    # Select time field
+    time_field = select_time_field()
+
     try:
         result = generateProcessingTimePerURI(
             log_file,
@@ -802,7 +855,8 @@ def generate_processing_time(log_file, log_format_file):
             metric=metric,
             topN=top_n,
             interval=interval,
-            patternsFile=patterns_file
+            patternsFile=patterns_file,
+            timeField=time_field
         )
         print(f"\n✓ Processing Time chart generated:")
         print(f"  Total transactions: {result['totalTransactions']}")
@@ -820,6 +874,86 @@ def generate_processing_time(log_file, log_format_file):
         print(f"    - Interactive legend to show/hide patterns")
         print(f"    - Drag to zoom, use toolbar for pan, reset, etc.")
         print(f"    - Range slider for time navigation")
+    except Exception as e:
+        print(f"✗ Error: {e}")
+
+
+def generate_request_per_target(log_file, log_format_file):
+    """Generate Request Count per Target visualization"""
+    print("\n--- Generate Request Count per Target ---")
+
+    # Get user preferences
+    top_n_input = input("\nNumber of top targets to display (default: 20): ").strip()
+    top_n = int(top_n_input) if top_n_input else 20
+
+    interval_input = input("Time interval for aggregation (default: 10s, examples: 1s, 10s, 1min, 5min, 1h): ").strip()
+    interval = interval_input if interval_input else '10s'
+
+    # Select time field
+    time_field = select_time_field()
+
+    try:
+        result = generateRequestPerTarget(
+            log_file,
+            log_format_file,
+            'html',
+            topN=top_n,
+            interval=interval,
+            timeField=time_field
+        )
+        print(f"\n✓ Request Count per Target chart generated:")
+        print(f"  Total transactions: {result['totalTransactions']}")
+        print(f"  Targets displayed: {result['targetsDisplayed']}")
+        print(f"  Interval: {result.get('interval', interval)}")
+        print(f"  Output file: {result['filePath']}")
+        print(f"\n  Open the HTML file in your browser to view the interactive chart.")
+        print(f"  Features:")
+        print(f"    - Time series visualization of request count per target (target_ip:target_port)")
+        print(f"    - Interactive legend to show/hide targets")
+        print(f"    - Checkbox filter panel for easy target selection")
+        print(f"    - Drag to zoom, use toolbar for pan, reset, etc.")
+        print(f"    - Range slider for time navigation")
+        print(f"    - Hover text display with click-to-copy functionality")
+    except Exception as e:
+        print(f"✗ Error: {e}")
+
+
+def generate_request_per_client_ip(log_file, log_format_file):
+    """Generate Request Count per Client IP visualization"""
+    print("\n--- Generate Request Count per Client IP ---")
+
+    # Get user preferences
+    top_n_input = input("\nNumber of top client IPs to display (default: 20): ").strip()
+    top_n = int(top_n_input) if top_n_input else 20
+
+    interval_input = input("Time interval for aggregation (default: 10s, examples: 1s, 10s, 1min, 5min, 1h): ").strip()
+    interval = interval_input if interval_input else '10s'
+
+    # Select time field
+    time_field = select_time_field()
+
+    try:
+        result = generateRequestPerClientIP(
+            log_file,
+            log_format_file,
+            'html',
+            topN=top_n,
+            interval=interval,
+            timeField=time_field
+        )
+        print(f"\n✓ Request Count per Client IP chart generated:")
+        print(f"  Total transactions: {result['totalTransactions']}")
+        print(f"  Client IPs displayed: {result['clientIPsDisplayed']}")
+        print(f"  Interval: {result.get('interval', interval)}")
+        print(f"  Output file: {result['filePath']}")
+        print(f"\n  Open the HTML file in your browser to view the interactive chart.")
+        print(f"  Features:")
+        print(f"    - Time series visualization of request count per client IP")
+        print(f"    - Interactive legend to show/hide client IPs")
+        print(f"    - Checkbox filter panel for easy client IP selection")
+        print(f"    - Drag to zoom, use toolbar for pan, reset, etc.")
+        print(f"    - Range slider for time navigation")
+        print(f"    - Hover text display with click-to-copy functionality")
     except Exception as e:
         print(f"✗ Error: {e}")
 
