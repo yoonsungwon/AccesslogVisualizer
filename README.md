@@ -30,6 +30,9 @@ python main.py access.log.gz
 
 # 예제 파이프라인 실행
 python main.py --example access.log.gz
+
+# Apache LogFormat에서 설정 파일 생성
+python apache_logformat_converter.py --preset combined --output config
 ```
 
 ## MCP 도구 목록
@@ -194,5 +197,6 @@ MIT License
 
 - **AI 가이드**: `AI_GUIDE.md` - AI 어시스턴트용 상세 기술 문서
 - **사용 예제**: `EXAMPLES.md` - 로그 포맷별 설정 및 사용 예제
+- **Apache LogFormat 컨버터**: `APACHE_LOGFORMAT_GUIDE.md` - Apache LogFormat 문자열로부터 설정 파일 자동 생성
 - **Claude 가이드**: `CLAUDE.md` - Claude Code 통합 가이드
 - **Gemini 가이드**: `GEMINI.md` - Gemini CLI 통합 가이드
