@@ -1,97 +1,284 @@
-# This file is used to configure the ALB access log analyzer.
-# It defines the input path, log pattern, columns, and their data types.
-version: '1.0'
-
-# Multiprocessing Configuration
-# Enable multiprocessing for faster processing of large log files
-multiprocessing:
-  enabled: true              # Enable/disable multiprocessing (default: true)
-  num_workers: null          # Number of worker processes (null = auto-detect based on CPU cores)
-  chunk_size: 10000          # Number of lines per chunk for parallel processing
-  min_lines_for_parallel: 10000  # Minimum lines to trigger parallel processing
-
-# Single file path (string)
-# input_path: '361601224285_elasticloadbalancing_ap-northeast-2_app.NMP-ALB-PRD-EXT-AN2.08f6e93c36da8c98_20250514T0000Z_10.2.144.28_war42r38.log.gz'
-
-# Multiple file paths (list) - uncomment and modify as needed
-# input_path:
-#   - '361601224285_elasticloadbalancing_ap-northeast-2_app.NMP-ALB-PRD-EXT-AN2.08f6e93c36da8c98_20250514T0000Z_10.2.144.28_war42r38.log.gz'
-#   - '361601224285_elasticloadbalancing_ap-northeast-2_app.NMP-ALB-PRD-EXT-AN2.08f6e93c36da8c98_20250514T0100Z_10.2.144.28_war42r38.log.gz'
-#   - '361601224285_elasticloadbalancing_ap-northeast-2_app.NMP-ALB-PRD-EXT-AN2.08f6e93c36da8c98_20250514T0200Z_10.2.144.28_war42r38.log.gz'
-
-# Glob pattern for multiple files - uncomment and modify as needed
-input_path: '*.gz'
-
-log_pattern: ([^ ]*) ([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:-]([0-9]*) ([-.0-9]*) ([-.0-9]*) ([-.0-9]*) (|[-0-9]*) (-|[-0-9]*) ([-0-9]*) ([-0-9]*) \"([^ ]*) (.*) (- |[^ ]*)\" \"([^\"]*)\" ([A-Z0-9-_]+) ([A-Za-z0-9.-]*) ([^ ]*) \"([^\"]*)\" \"([^\"]*)\" \"([^\"]*)\" ([-.0-9]*) ([^ ]*) \"([^\"]*)\" \"([^\"]*)\" \"([^ ]*)\" \"([^\\s]+?)\" \"([^\\s]+)\" \"([^ ]*)\" \"([^ ]*)\" ?([^ ]*)?
-
-columns:
-  - "type"
-  - "time"
-  - "elb"
-  - "client_ip"
-  - "client_port"
-  - "target_ip"
-  - "target_port"
-  - "request_processing_time"
-  - "target_processing_time"
-  - "response_processing_time"
-  - "elb_status_code"
-  - "target_status_code"
-  - "received_bytes"
-  - "sent_bytes"
-  - "request_verb"
-  - "request_url"
-  - "request_proto"
-  - "user_agent"
-  - "ssl_cipher"
-  - "ssl_protocol"
-  - "target_group_arn"
-  - "trace_id"
-  - "domain_name"
-  - "chosen_cert_arn"
-  - "matched_rule_priority"
-  - "request_creation_time"
-  - "actions_executed"
-  - "redirect_url"
-  - "lambda_error_reason"
-  - "target_port_list"
-  - "target_status_code_list"
-  - "classification"
-  - "classification_reason"
-  - "conn_trace_id"
-
+alb:
+  column_types:
+    actions_executed: str
+    chosen_cert_arn: str
+    classification: str
+    classification_reason: str
+    client_ip: str
+    client_port: int
+    conn_trace_id: str
+    domain_name: str
+    elb: str
+    elb_status_code: int
+    lambda_error_reason: str
+    matched_rule_priority: int
+    received_bytes: int
+    redirect_url: str
+    request_creation_time: datetime
+    request_processing_time: float
+    request_proto: str
+    request_url: str
+    request_verb: str
+    response_processing_time: float
+    sent_bytes: int
+    ssl_cipher: str
+    ssl_protocol: str
+    target_group_arn: str
+    target_ip: str
+    target_port: int
+    target_port_list: str
+    target_processing_time: float
+    target_status_code: int
+    target_status_code_list: str
+    time: datetime
+    trace_id: str
+    type: str
+    user_agent: str
+  columns:
+  - type
+  - time
+  - elb
+  - client_ip
+  - client_port
+  - target_ip
+  - target_port
+  - request_processing_time
+  - target_processing_time
+  - response_processing_time
+  - elb_status_code
+  - target_status_code
+  - received_bytes
+  - sent_bytes
+  - request_verb
+  - request_url
+  - request_proto
+  - user_agent
+  - ssl_cipher
+  - ssl_protocol
+  - target_group_arn
+  - trace_id
+  - domain_name
+  - chosen_cert_arn
+  - matched_rule_priority
+  - request_creation_time
+  - actions_executed
+  - redirect_url
+  - lambda_error_reason
+  - target_port_list
+  - target_status_code_list
+  - classification
+  - classification_reason
+  - conn_trace_id
+  input_path: '*.gz'
+  log_pattern: ([^ ]*) ([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:-]([0-9]*) ([-.0-9]*)
+    ([-.0-9]*) ([-.0-9]*) (|[-0-9]*) (-|[-0-9]*) ([-0-9]*) ([-0-9]*) "([^ ]*) (.*)
+    (- |[^ ]*)" "([^"]*)" ([A-Z0-9-_]+) ([A-Za-z0-9.-]*) ([^ ]*) "([^"]*)" "([^"]*)"
+    "([^"]*)" ([-.0-9]*) ([^ ]*) "([^"]*)" "([^"]*)" "([^ ]*)" "([^\s]+?)" "([^\s]+)"
+    "([^ ]*)" "([^ ]*)" ?([^ ]*)?
 column_types:
-  type: "str"
-  time: "datetime"
-  elb: "str"
-  client_ip: "str"
-  client_port: "int"
-  target_ip: "str"
-  target_port: "int"
-  request_processing_time: "float"
-  target_processing_time: "float"
-  response_processing_time: "float"
-  elb_status_code: "int"
-  target_status_code: "int"
-  received_bytes: "int"
-  sent_bytes: "int"
-  request_verb: "str"
-  request_url: "str"
-  request_proto: "str"
-  user_agent: "str"
-  ssl_cipher: "str"
-  ssl_protocol: "str"
-  target_group_arn: "str"
-  trace_id: "str"
-  domain_name: "str"
-  chosen_cert_arn: "str"
-  matched_rule_priority: "int"
-  request_creation_time: "datetime"
-  actions_executed: "str"
-  redirect_url: "str"
-  lambda_error_reason: "str"
-  target_port_list: "str"
-  target_status_code_list: "str"
-  classification: "str"
-  classification_reason: "str"
-  conn_trace_id: "str"
+  actions_executed: str
+  chosen_cert_arn: str
+  classification: str
+  classification_reason: str
+  client_ip: str
+  client_port: int
+  conn_trace_id: str
+  domain_name: str
+  elb: str
+  elb_status_code: int
+  lambda_error_reason: str
+  matched_rule_priority: int
+  received_bytes: int
+  redirect_url: str
+  request_creation_time: datetime
+  request_processing_time: float
+  request_proto: str
+  request_url: str
+  request_verb: str
+  response_processing_time: float
+  sent_bytes: int
+  ssl_cipher: str
+  ssl_protocol: str
+  target_group_arn: str
+  target_ip: str
+  target_port: int
+  target_port_list: str
+  target_processing_time: float
+  target_status_code: int
+  target_status_code_list: str
+  time: datetime
+  trace_id: str
+  type: str
+  user_agent: str
+columns:
+- type
+- time
+- elb
+- client_ip
+- client_port
+- target_ip
+- target_port
+- request_processing_time
+- target_processing_time
+- response_processing_time
+- elb_status_code
+- target_status_code
+- received_bytes
+- sent_bytes
+- request_verb
+- request_url
+- request_proto
+- user_agent
+- ssl_cipher
+- ssl_protocol
+- target_group_arn
+- trace_id
+- domain_name
+- chosen_cert_arn
+- matched_rule_priority
+- request_creation_time
+- actions_executed
+- redirect_url
+- lambda_error_reason
+- target_port_list
+- target_status_code_list
+- classification
+- classification_reason
+- conn_trace_id
+grok:
+  column_types:
+    level: str
+    message: str
+    timestamp: datetime
+  columns:
+  - timestamp
+  - level
+  - message
+  field_map:
+    timestamp: timestamp
+  input_path: custom.log
+  log_pattern: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[([^\]]+)\] (.*)
+httpd:
+  column_types:
+    client_ip: str
+    identity: str
+    user: str
+    time: datetime
+    request: str
+    status: int
+    bytes_sent: int
+    referer: str
+    user_agent: str
+  columns:
+  - client_ip
+  - identity
+  - user
+  - time
+  - request
+  - status
+  - bytes_sent
+  - referer
+  - user_agent
+  field_map:
+    timestamp: time
+    method: request_method
+    url: request_url
+    status: status
+    clientIp: client_ip
+  input_path: access.log
+  log_pattern: '([^ ]*) ([^ ]*) ([^ ]*) \[([^\]]*)] "([^"]*)" ([0-9]*) ([0-9\-]*)(?:
+    "([^"]*)" "([^"]*)")?'
+httpd_with_time:
+  column_types:
+    bytes_sent: int
+    client_ip: str
+    identity: str
+    referer: str
+    request_method: str
+    request_proto: str
+    request_url: str
+    response_time_us: int
+    status: int
+    time: datetime
+    user: str
+    user_agent: str
+  columns:
+  - client_ip
+  - identity
+  - user
+  - time
+  - request_method
+  - request_url
+  - request_proto
+  - status
+  - bytes_sent
+  - referer
+  - user_agent
+  - response_time_us
+  field_map:
+    clientIp: client_ip
+    method: request_method
+    responseTime: response_time_us
+    status: status
+    timestamp: time
+    url: request_url
+  input_path: access.log
+  log_pattern: ([^ ]*) [^ ]* ([^ ]*) \[([^\]]*)\] "([^ ]*) ([^ ]*) ([^"]*)" ([0-9]*)
+    ([0-9\-]*) "([^"]*)" "([^"]*)" ([0-9]+)
+input_path: '*.gz'
+json:
+  field_map:
+    clientIp: client_ip
+    method: method
+    responseTime: response_time
+    status: status
+    timestamp: timestamp
+    url: url
+  input_path: access.log
+log_format_type: ALB
+log_pattern: ([^ ]*) ([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:-]([0-9]*) ([-.0-9]*)
+  ([-.0-9]*) ([-.0-9]*) (|[-0-9]*) (-|[-0-9]*) ([-0-9]*) ([-0-9]*) "([^ ]*) (.*) (-
+  |[^ ]*)" "([^"]*)" ([A-Z0-9-_]+) ([A-Za-z0-9.-]*) ([^ ]*) "([^"]*)" "([^"]*)" "([^"]*)"
+  ([-.0-9]*) ([^ ]*) "([^"]*)" "([^"]*)" "([^ ]*)" "([^\s]+?)" "([^\s]+)" "([^ ]*)"
+  "([^ ]*)" ?([^ ]*)?
+multiprocessing:
+  chunk_size: 10000
+  enabled: true
+  min_lines_for_parallel: 10000
+  num_workers: null
+nginx:
+  column_types:
+    bytes_sent: int
+    client_ip: str
+    referer: str
+    remote_user: str
+    request_method: str
+    request_proto: str
+    request_time: float
+    request_url: str
+    status: int
+    time: datetime
+    user_agent: str
+  columns:
+  - client_ip
+  - remote_user
+  - time
+  - request_method
+  - request_url
+  - request_proto
+  - status
+  - bytes_sent
+  - referer
+  - user_agent
+  - request_time
+  field_map:
+    clientIp: client_ip
+    method: request_method
+    responseTime: request_time
+    status: status
+    timestamp: time
+    url: request_url
+  input_path: access.log
+  log_pattern: ([^ ]*) - ([^ ]*) \[([^\]]*)\] "([^ ]*) ([^ ]*) ([^"]*)" ([0-9]*) ([0-9\-]*)
+    "([^"]*)" "([^"]*)" ([0-9.]+)
+version: '1.0'

@@ -46,6 +46,73 @@ def print_banner():
     print()
 
 
+def _get_available_columns(log_format_file):
+    """
+    Get available columns from log format file.
+
+    Args:
+        log_format_file: Path to log format JSON file
+
+    Returns:
+        list: List of available column names
+    """
+    import json
+    try:
+        with open(log_format_file, 'r', encoding='utf-8') as f:
+            format_data = json.load(f)
+
+        # Get columns from format file
+        if 'columns' in format_data:
+            columns = format_data['columns']
+        else:
+            # Fallback: try to parse from fieldMap
+            columns = list(format_data.get('fieldMap', {}).values())
+
+        # For HTTPD logs, add derived columns
+        if format_data.get('patternType') == 'HTTPD' and 'request' in columns:
+            columns.extend(['request_method', 'request_url', 'request_proto'])
+
+        return columns
+    except Exception as e:
+        print(f"Warning: Could not read columns from format file: {e}")
+        return []
+
+
+def _check_field_availability(field_name, available_columns):
+    """
+    Check if a field is available in the log format.
+
+    Args:
+        field_name: Field name to check
+        available_columns: List of available columns
+
+    Returns:
+        bool: True if field is available
+    """
+    # Check direct match
+    if field_name in available_columns:
+        return True
+
+    # Check common field name variants
+    variants = {
+        'sent_bytes': ['sent_bytes', 'bytes_sent', 'size', 'response_size', 'body_bytes_sent'],
+        'received_bytes': ['received_bytes', 'bytes', 'request_size'],
+        'target_ip': ['target_ip', 'backend_ip', 'upstream_addr'],
+        'client_ip': ['client_ip', 'remote_addr', 'clientIp'],
+        'request_processing_time': ['request_processing_time', 'request_time'],
+        'target_processing_time': ['target_processing_time', 'upstream_response_time'],
+        'response_processing_time': ['response_processing_time'],
+    }
+
+    # Check variants
+    if field_name in variants:
+        for variant in variants[field_name]:
+            if variant in available_columns:
+                return True
+
+    return False
+
+
 def select_time_field():
     """
     Prompt user to select time field for analysis.
@@ -542,6 +609,15 @@ def generate_received_bytes(log_file, log_format_file):
     """Generate Received Bytes per URI visualization"""
     print("\n--- Generate Received Bytes per URI ---")
 
+    # Check if received_bytes field is available
+    available_columns = _get_available_columns(log_format_file)
+    if not _check_field_availability('received_bytes', available_columns):
+        print(f"  ✗ Field Not Found: received_bytes (or variants: bytes, request_size)")
+        print(f"  Available columns in log format: {', '.join(available_columns[:10])}")
+        if len(available_columns) > 10:
+            print(f"  ... and {len(available_columns) - 10} more")
+        return
+
     # Check for existing pattern files in the same directory
     log_file_path = Path(log_file)
     log_dir = log_file_path.parent
@@ -641,6 +717,15 @@ def generate_received_bytes(log_file, log_format_file):
 def generate_sent_bytes(log_file, log_format_file):
     """Generate Sent Bytes per URI visualization"""
     print("\n--- Generate Sent Bytes per URI ---")
+
+    # Check if sent_bytes field is available
+    available_columns = _get_available_columns(log_format_file)
+    if not _check_field_availability('sent_bytes', available_columns):
+        print(f"  ✗ Field Not Found: sent_bytes (or variants: bytes_sent, size, response_size, body_bytes_sent)")
+        print(f"  Available columns in log format: {', '.join(available_columns[:10])}")
+        if len(available_columns) > 10:
+            print(f"  ... and {len(available_columns) - 10} more")
+        return
 
     # Check for existing pattern files in the same directory
     log_file_path = Path(log_file)
@@ -742,11 +827,27 @@ def generate_processing_time(log_file, log_format_file):
     """Generate Processing Time per URI visualization"""
     print("\n--- Generate Processing Time per URI ---")
 
+    # Get available columns
+    available_columns = _get_available_columns(log_format_file)
+
+    # Check field availability
+    fields = {
+        '1': ('request_processing_time', 'Request Processing Time'),
+        '2': ('target_processing_time', 'Target Processing Time'),
+        '3': ('response_processing_time', 'Response Processing Time')
+    }
+
+    field_availability = {}
+    for key, (field_name, display_name) in fields.items():
+        field_availability[key] = _check_field_availability(field_name, available_columns)
+
     # Select processing time field
     print("\nSelect processing time field:")
-    print("  1. request_processing_time")
-    print("  2. target_processing_time (default)")
-    print("  3. response_processing_time")
+    for key, (field_name, display_name) in fields.items():
+        status = "✓ Available" if field_availability[key] else "✗ Not available"
+        default_marker = " (default)" if key == '2' else ""
+        print(f"  {key}. {field_name}{default_marker} - {status}")
+
     field_choice = input("Field number (1-3, default: 2): ").strip()
 
     field_map = {
@@ -757,6 +858,16 @@ def generate_processing_time(log_file, log_format_file):
     }
 
     processing_time_field = field_map.get(field_choice, 'target_processing_time')
+
+    # Check if selected field is available
+    selected_key = field_choice if field_choice else '2'
+    if not field_availability.get(selected_key, False):
+        print(f"  ✗ Field Not Found: {processing_time_field}")
+        print(f"  Available columns in log format: {', '.join(available_columns[:10])}")
+        if len(available_columns) > 10:
+            print(f"  ... and {len(available_columns) - 10} more")
+        return
+
     print(f"  ✓ Selected field: {processing_time_field}")
 
     # Select metric
@@ -881,6 +992,15 @@ def generate_processing_time(log_file, log_format_file):
 def generate_request_per_target(log_file, log_format_file):
     """Generate Request Count per Target visualization"""
     print("\n--- Generate Request Count per Target ---")
+
+    # Check if target_ip field is available
+    available_columns = _get_available_columns(log_format_file)
+    if not _check_field_availability('target_ip', available_columns):
+        print(f"  ✗ Field Not Found: target_ip (or variants: backend_ip, upstream_addr)")
+        print(f"  Available columns in log format: {', '.join(available_columns[:10])}")
+        if len(available_columns) > 10:
+            print(f"  ... and {len(available_columns) - 10} more")
+        return
 
     # Get user preferences
     top_n_input = input("\nNumber of top targets to display (default: 20): ").strip()

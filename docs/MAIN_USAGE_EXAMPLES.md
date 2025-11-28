@@ -271,6 +271,46 @@ Compare the two charts to see if time is spent receiving requests or sending res
 - **Time Range Buttons**: Quick selection (1h, 6h, 12h, 1d, all)
 - **Export**: Download as PNG using camera button
 
+## Field Availability Check (NEW)
+
+The CLI now shows which fields are available in your log format BEFORE you start analysis, preventing wasted time parsing logs for unavailable features.
+
+### Example: Processing Time Field Selection
+
+```
+--- Generate Processing Time per URI ---
+
+Select processing time field:
+  1. request_processing_time - ✗ Not available
+  2. target_processing_time (default) - ✗ Not available
+  3. response_processing_time - ✗ Not available
+
+  ✗ Field Not Found: target_processing_time
+  Available columns in log format: client_ip, identity, user, time, request, status, bytes_sent, referer, user_agent, request_method
+```
+
+### Field-Dependent Features
+
+The following features check for field availability:
+
+- **Option 10 (Received Bytes)**: Requires `received_bytes` field (ALB only)
+- **Option 11 (Sent Bytes)**: Requires `sent_bytes` or `bytes_sent` field
+- **Option 12 (Processing Time)**: Requires processing time fields (ALB, HTTPD_WITH_TIME, or NGINX)
+- **Option 13 (Request per Target)**: Requires `target_ip` field (ALB only)
+
+### Supported Field Variants
+
+The system automatically checks for field name variants across different log formats:
+
+| Feature | Field Variants |
+|---------|----------------|
+| Sent Bytes | `sent_bytes`, `bytes_sent`, `size`, `response_size`, `body_bytes_sent` |
+| Received Bytes | `received_bytes`, `bytes`, `request_size` |
+| Client IP | `client_ip`, `remote_addr`, `clientIp` |
+| Target IP | `target_ip`, `backend_ip`, `upstream_addr` |
+| Request Processing Time | `request_processing_time`, `request_time` |
+| Target Processing Time | `target_processing_time`, `upstream_response_time` |
+
 ## Tips
 
 1. **Start Simple**: Try without Processing Time analysis first to understand the data
@@ -282,3 +322,4 @@ Compare the two charts to see if time is spent receiving requests or sending res
 4. **Multiple Fields**: Analyze all three processing time fields to understand where time is spent (client, backend, response)
 5. **Time-Series Visualization**: Use Option 12 to see how processing time changes over time
 6. **Combine Tools**: Use Option 6 to find slow URLs, then Option 12 to visualize their performance trends
+7. **Check Field Availability**: Before selecting a feature, check if your log format includes the required fields (see table above)

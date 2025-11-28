@@ -145,7 +145,11 @@ def recommendAccessLogFormat(inputFile: str) -> Dict[str, Any]:
     # Include columns if available (for ALB parsing with config.yaml)
     if 'columns' in format_info:
         result['columns'] = format_info['columns']
-    
+
+    # Include columnTypes if available
+    if 'columnTypes' in format_info:
+        result['columnTypes'] = format_info['columnTypes']
+
     # Save to JSON file
     with open(log_format_file, 'w', encoding='utf-8') as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
@@ -219,15 +223,20 @@ def _detect_log_type(sample_lines: List[str]) -> Tuple[str, float]:
 
 
 def _generate_alb_format(input_file=None):
-    """Generate ALB format specification using config.yaml if available
-    
+    """Generate log format specification using config.yaml if available
+
+    Supports multiple log format types: ALB, HTTPD, JSON, GROK, Nginx
+
     Args:
         input_file (str, optional): Input log file path to find config.yaml in same directory
+
+    Returns:
+        dict: Format specification with pattern, columns, field_map, etc.
     """
     # Try to load config.yaml
     config = None
     config_paths = []
-    
+
     # Search for config.yaml in possible locations
     if input_file:
         input_path = Path(input_file)
@@ -235,68 +244,273 @@ def _generate_alb_format(input_file=None):
         config_paths.append(input_path.parent / 'config.yaml')
         # 2. Parent directory
         config_paths.append(input_path.parent.parent / 'config.yaml')
-    
+
     # 3. Current working directory
     config_paths.append(Path.cwd() / 'config.yaml')
     # 4. Script directory (where data_parser.py is located)
     script_dir = Path(__file__).parent
     config_paths.append(script_dir / 'config.yaml')
-    
+
     # Try to load config.yaml
     for config_path in config_paths:
         if config_path.exists():
             try:
                 config = load_config_legacy(str(config_path))
-                logger.info(f"Using ALB config from: {config_path}")
+                logger.info(f"Loaded config from: {config_path}")
                 break
             except Exception as e:
                 logger.warning(f"Failed to load config from {config_path}: {e}")
                 continue
-    
-    # Use config.yaml if available, otherwise use default
-    if config and 'log_pattern' in config and 'columns' in config:
-        pattern = config['log_pattern']
-        columns = config.get('columns', [])
-        
-        # Build field map from config columns
+
+    if not config:
+        # No config found - return default ALB format
+        logger.info("No config.yaml found, using default ALB format")
+        return _get_default_alb_format()
+
+    # Determine log format type
+    log_format_type = config.get('log_format_type', 'ALB').upper()
+    logger.info(f"Log format type from config: {log_format_type}")
+
+    # Handle different log format types
+    if log_format_type == 'HTTPD' or log_format_type == 'APACHE':
+        return _load_httpd_format_from_config(config)
+    elif log_format_type == 'NGINX':
+        return _load_nginx_format_from_config(config)
+    elif log_format_type == 'JSON':
+        return _load_json_format_from_config(config)
+    elif log_format_type == 'GROK':
+        return _load_grok_format_from_config(config)
+    elif log_format_type == 'ALB':
+        return _load_alb_format_from_config(config)
+    else:
+        # Unknown type - try legacy format first, then default ALB
+        logger.warning(f"Unknown log_format_type: {log_format_type}, trying legacy format")
+        if 'log_pattern' in config and 'columns' in config:
+            return _load_alb_format_from_config(config)
+        else:
+            return _get_default_alb_format()
+
+
+def _get_default_alb_format():
+    """Return default ALB format specification"""
+    pattern = r'([^ ]*) ([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:-]([0-9]*) ([-.0-9]*) ([-.0-9]*) ([-.0-9]*) (|[-0-9]*) (-|[-0-9]*) ([-0-9]*) ([-0-9]*) "([^ ]*) (.*?) (- |[^ ]*)" "([^"]*)" ([A-Z0-9-_]+) ([A-Za-z0-9.-]*) ([^ ]*) "([^"]*)" "([^"]*)" "([^"]*)" ([-.0-9]*) ([^ ]*) "([^"]*)"'
+
+    return {
+        'logPattern': pattern,
+        'patternType': 'ALB',
+        'fieldMap': {
+            'timestamp': 'time',
+            'method': 'request_verb',
+            'url': 'request_url',
+            'status': 'elb_status_code',
+            'responseTime': 'target_processing_time',
+            'clientIp': 'client_ip'
+        },
+        'responseTimeUnit': 's',
+        'timezone': 'UTC'
+    }
+
+
+def _load_alb_format_from_config(config):
+    """Load ALB format from config.yaml"""
+    # Try format-specific section first
+    alb_config = config.get('alb', {})
+
+    # Fall back to legacy top-level config
+    if not alb_config or 'log_pattern' not in alb_config:
+        if 'log_pattern' in config and 'columns' in config:
+            alb_config = config
+            logger.info("Using legacy top-level ALB config")
+        else:
+            logger.warning("ALB config incomplete, using default")
+            return _get_default_alb_format()
+
+    pattern = alb_config.get('log_pattern')
+    columns = alb_config.get('columns', [])
+
+    if not pattern or not columns:
+        logger.warning("ALB pattern or columns missing, using default")
+        return _get_default_alb_format()
+
+    # Build field map from config columns
+    field_map = _build_field_map_from_columns(columns, alb_config.get('field_map', {}))
+
+    return {
+        'logPattern': pattern,
+        'patternType': 'ALB',
+        'fieldMap': field_map,
+        'columns': columns,
+        'responseTimeUnit': 's',
+        'timezone': 'UTC'
+    }
+
+
+def _load_httpd_format_from_config(config):
+    """Load Apache/HTTPD format from config.yaml"""
+    # Try httpd_with_time first (more detailed format)
+    httpd_config = config.get('httpd_with_time', {})
+    pattern_type = 'HTTPD'
+
+    if not httpd_config or 'log_pattern' not in httpd_config:
+        # Fall back to basic httpd config
+        httpd_config = config.get('httpd', {})
+
+    if not httpd_config or 'log_pattern' not in httpd_config:
+        logger.warning("HTTPD config not found in config.yaml, using default Apache Combined format")
+        return _generate_apache_format([])
+
+    pattern = httpd_config.get('log_pattern')
+    columns = httpd_config.get('columns', [])
+    field_map = httpd_config.get('field_map', {})
+
+    # If no explicit field_map, build from columns
+    if not field_map:
+        field_map = _build_field_map_from_columns(columns, {})
+
+    return {
+        'logPattern': pattern,
+        'patternType': pattern_type,
+        'fieldMap': field_map,
+        'columns': columns,
+        'responseTimeUnit': 'ms',
+        'timezone': 'fromLog'
+    }
+
+
+def _load_nginx_format_from_config(config):
+    """Load Nginx format from config.yaml"""
+    nginx_config = config.get('nginx', {})
+
+    if not nginx_config or 'log_pattern' not in nginx_config:
+        logger.warning("Nginx config not found, using default")
+        # Return default Nginx format
+        pattern = r'([^ ]*) - ([^ ]*) \[([^\]]*)\] "([^ ]*) ([^ ]*) ([^"]*)" ([0-9]*) ([0-9\-]*) "([^"]*)" "([^"]*)" ([0-9.]+)'
+        columns = ['client_ip', 'remote_user', 'time', 'request_method', 'request_url',
+                   'request_proto', 'status', 'bytes_sent', 'referer', 'user_agent', 'request_time']
         field_map = {
-            'timestamp': 'time' if 'time' in columns else None,
-            'method': 'request_verb' if 'request_verb' in columns else None,
-            'url': 'request_url' if 'request_url' in columns else None,
-            'status': 'elb_status_code' if 'elb_status_code' in columns else None,
-            'responseTime': 'target_processing_time' if 'target_processing_time' in columns else None,
-            'clientIp': 'client_ip' if 'client_ip' in columns else None
-        }
-        
-        # Remove None values
-        field_map = {k: v for k, v in field_map.items() if v is not None}
-        
-        return {
-            'logPattern': pattern,
-            'patternType': 'ALB',
-            'fieldMap': field_map,
-            'columns': columns,  # Store all columns for reference
-            'responseTimeUnit': 's',  # ALB uses seconds
-            'timezone': 'UTC'  # ALB logs are in UTC
+            'timestamp': 'time',
+            'method': 'request_method',
+            'url': 'request_url',
+            'status': 'status',
+            'responseTime': 'request_time',
+            'clientIp': 'client_ip'
         }
     else:
-        # Fallback to default ALB pattern (simplified)
-        pattern = r'([^ ]*) ([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:-]([0-9]*) ([-.0-9]*) ([-.0-9]*) ([-.0-9]*) (|[-0-9]*) (-|[-0-9]*) ([-0-9]*) ([-0-9]*) "([^ ]*) (.*?) (- |[^ ]*)" "([^"]*)" ([A-Z0-9-_]+) ([A-Za-z0-9.-]*) ([^ ]*) "([^"]*)" "([^"]*)" "([^"]*)" ([-.0-9]*) ([^ ]*) "([^"]*)"'
-        
-        return {
-            'logPattern': pattern,
-            'patternType': 'ALB',
-            'fieldMap': {
-                'timestamp': 'time',
-                'method': 'request_verb',
-                'url': 'request_url',
-                'status': 'elb_status_code',
-                'responseTime': 'target_processing_time',
-                'clientIp': 'client_ip'
-            },
-            'responseTimeUnit': 's',
-            'timezone': 'UTC'
+        pattern = nginx_config.get('log_pattern')
+        columns = nginx_config.get('columns', [])
+        field_map = nginx_config.get('field_map', {})
+
+        if not field_map:
+            field_map = _build_field_map_from_columns(columns, {})
+
+    return {
+        'logPattern': pattern,
+        'patternType': 'HTTPD',
+        'fieldMap': field_map,
+        'columns': columns,
+        'responseTimeUnit': 's',
+        'timezone': 'fromLog'
+    }
+
+
+def _load_json_format_from_config(config):
+    """Load JSON format from config.yaml"""
+    json_config = config.get('json', {})
+    field_map = json_config.get('field_map', {})
+
+    if not field_map:
+        # Default JSON field mapping
+        field_map = {
+            'timestamp': 'timestamp',
+            'method': 'method',
+            'url': 'url',
+            'status': 'status',
+            'responseTime': 'response_time',
+            'clientIp': 'client_ip'
         }
+
+    return {
+        'logPattern': 'JSON',
+        'patternType': 'JSON',
+        'fieldMap': field_map,
+        'responseTimeUnit': 'ms',
+        'timezone': 'fromLog'
+    }
+
+
+def _load_grok_format_from_config(config):
+    """Load GROK/custom format from config.yaml"""
+    grok_config = config.get('grok', {})
+
+    if not grok_config or 'log_pattern' not in grok_config:
+        logger.warning("GROK config incomplete, using default")
+        return {
+            'logPattern': r'.*',
+            'patternType': 'GROK',
+            'fieldMap': {},
+            'responseTimeUnit': 'ms',
+            'timezone': 'fromLog'
+        }
+
+    pattern = grok_config.get('log_pattern')
+    columns = grok_config.get('columns', [])
+    field_map = grok_config.get('field_map', {})
+
+    if not field_map:
+        field_map = _build_field_map_from_columns(columns, {})
+
+    return {
+        'logPattern': pattern,
+        'patternType': 'GROK',
+        'fieldMap': field_map,
+        'columns': columns,
+        'responseTimeUnit': 'ms',
+        'timezone': 'fromLog'
+    }
+
+
+def _build_field_map_from_columns(columns, explicit_field_map=None):
+    """Build field map from column names with smart matching
+
+    Args:
+        columns: List of column names from config
+        explicit_field_map: Explicit field mapping from config (takes priority)
+
+    Returns:
+        dict: Field mapping for MCP tools
+    """
+    if explicit_field_map:
+        return explicit_field_map
+
+    field_map = {}
+
+    # Common field name variations
+    time_variants = ['time', 'timestamp', '@timestamp', 'datetime', 'request_time']
+    method_variants = ['method', 'request_method', 'request_verb', 'verb', 'http_method']
+    url_variants = ['url', 'request_url', 'uri', 'request_uri', 'path']
+    status_variants = ['status', 'status_code', 'elb_status_code', 'http_status', 'response_code']
+    response_time_variants = ['response_time', 'request_time', 'response_time_us',
+                              'target_processing_time', 'request_processing_time', 'duration', 'elapsed']
+    client_ip_variants = ['client_ip', 'remote_addr', 'client', 'ip', 'clientip', 'remote_ip']
+
+    # Find matches
+    for col in columns:
+        col_lower = col.lower()
+
+        if not field_map.get('timestamp') and col_lower in time_variants:
+            field_map['timestamp'] = col
+        elif not field_map.get('method') and col_lower in method_variants:
+            field_map['method'] = col
+        elif not field_map.get('url') and col_lower in url_variants:
+            field_map['url'] = col
+        elif not field_map.get('status') and col_lower in status_variants:
+            field_map['status'] = col
+        elif not field_map.get('responseTime') and col_lower in response_time_variants:
+            field_map['responseTime'] = col
+        elif not field_map.get('clientIp') and col_lower in client_ip_variants:
+            field_map['clientIp'] = col
+
+    return field_map
 
 
 def _generate_json_format(sample_lines):
@@ -329,19 +543,48 @@ def _generate_json_format(sample_lines):
 
 
 def _generate_apache_format(sample_lines):
-    """Generate Apache/Nginx format specification"""
-    # Apache Combined Log Format pattern
-    pattern = r'([^ ]*) [^ ]* ([^ ]*) \[([^\]]*)\] "([^ ]*) ([^ ]*) ([^"]*)" ([0-9]*) ([0-9\-]*)(?: "([^"]*)" "([^"]*)")?'
-    
+    """Generate Apache/Nginx format specification
+
+    Apache Combined Log Format: %h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"
+    Example: 116.33.12.98 - - [12/Dec/2021:03:13:02 +0900] "POST /path HTTP/1.1" 200 117 "http://..." "Mozilla/..."
+    Also handles malformed requests: 10.118.5.174 - - [12/Dec/2021:03:13:43 +0900] "-" 408 - "-" "-"
+    """
+    # Apache Combined Log Format pattern with support for:
+    # 1. Normal requests: "POST /path HTTP/1.1"
+    # 2. Malformed requests: "-"
+    # 3. Optional referer and user agent (without trailing quote)
+    pattern = r'([^ ]*) ([^ ]*) ([^ ]*) \[([^\]]*)\] "([^"]*)" ([0-9]*) ([0-9\-]*)(?: "([^"]*)" "([^"]*)")?'
+
     return {
         'logPattern': pattern,
         'patternType': 'HTTPD',
+        'columns': [
+            'client_ip',
+            'identity',
+            'user',
+            'time',
+            'request',  # Full request line (will be split later)
+            'status',
+            'bytes_sent',
+            'referer',
+            'user_agent'
+        ],
+        'columnTypes': {
+            'client_ip': 'str',
+            'identity': 'str',
+            'user': 'str',
+            'time': 'datetime',
+            'request': 'str',
+            'status': 'int',
+            'bytes_sent': 'int',
+            'referer': 'str',
+            'user_agent': 'str'
+        },
         'fieldMap': {
             'timestamp': 'time',
-            'method': 'method',
-            'url': 'url',
+            'method': 'request_method',
+            'url': 'request_url',
             'status': 'status',
-            'responseTime': 'response_time',
             'clientIp': 'client_ip'
         },
         'responseTimeUnit': 'ms',
@@ -683,6 +926,17 @@ def parse_log_file_with_format(input_file, log_format_file, use_multiprocessing=
         available_cols = [col for col in columns_to_load if col in all_columns]
         missing_cols = [col for col in columns_to_load if col not in all_columns]
 
+        # For HTTPD logs: if derived columns (request_url, request_method, request_proto) are requested,
+        # we need to include the source 'request' column for splitting
+        if pattern_type == 'HTTPD' and 'request' in all_columns:
+            httpd_derived_cols = ['request_url', 'request_method', 'request_proto']
+            if any(col in columns_to_load for col in httpd_derived_cols):
+                if 'request' not in available_cols:
+                    available_cols.append('request')
+                    logger.info("Added 'request' column for HTTPD request splitting")
+                # Remove derived columns from missing_cols since they'll be generated
+                missing_cols = [col for col in missing_cols if col not in httpd_derived_cols]
+
         if missing_cols:
             logger.warning(f"Requested columns not found in parsed data: {missing_cols}")
 
@@ -707,6 +961,81 @@ def parse_log_file_with_format(input_file, log_format_file, use_multiprocessing=
     if failed_lines:
         logger.info(f"Total failed lines: {len(failed_lines)}")
 
+    # For HTTPD logs, split 'request' field into method, url, protocol
+    if pattern_type == 'HTTPD' and 'request' in df.columns and not df.empty:
+        logger.info("Splitting HTTPD request field into method, url, protocol")
+
+        def split_request(request_str):
+            """Split request string like 'POST /path HTTP/1.1' into components"""
+            if pd.isna(request_str) or request_str in ('', '-', ' '):
+                return None, None, None
+
+            parts = request_str.strip().split(' ', 2)
+            if len(parts) == 3:
+                return parts[0], parts[1], parts[2]
+            elif len(parts) == 2:
+                return parts[0], parts[1], None
+            elif len(parts) == 1:
+                return None, parts[0], None
+            else:
+                return None, None, None
+
+        # Split request field
+        split_results = df['request'].apply(split_request)
+        df['request_method'] = split_results.apply(lambda x: x[0] if x else None)
+        df['request_url'] = split_results.apply(lambda x: x[1] if x else None)
+        df['request_proto'] = split_results.apply(lambda x: x[2] if x else None)
+
+        logger.info(f"Created columns: request_method, request_url, request_proto")
+
+        # Update fieldMap for compatibility
+        if 'fieldMap' in format_info:
+            format_info['fieldMap']['url'] = 'request_url'
+            format_info['fieldMap']['method'] = 'request_method'
+
+        # If columns_to_load was specified and doesn't include 'request', remove it to save memory
+        if columns_to_load and 'request' not in columns_to_load:
+            df = df.drop(columns=['request'])
+            logger.info("Removed 'request' column (not in requested columns)")
+
+        # Filter to only requested columns if specified
+        if columns_to_load:
+            # Keep only columns that were requested or generated from requested columns
+            final_cols = [col for col in df.columns if col in columns_to_load or col in ['request_method', 'request_url', 'request_proto']]
+            df = df[final_cols]
+            logger.info(f"Final columns after filtering: {final_cols}")
+
+    # Apply column type conversions from config
+    if not df.empty and 'columnTypes' in format_info:
+        column_types = format_info['columnTypes']
+        logger.info(f"Applying column type conversions from format info")
+
+        for col, dtype in column_types.items():
+            if col in df.columns:
+                try:
+                    if dtype == 'datetime' or dtype == 'timestamp':
+                        # For Apache/HTTPD logs: parse time format like "12/Dec/2021:03:13:02 +0900"
+                        if pattern_type == 'HTTPD':
+                            # Apache Common/Combined Log Format time
+                            df[col] = pd.to_datetime(df[col], format='%d/%b/%Y:%H:%M:%S %z', errors='coerce')
+                        else:
+                            # ALB or other formats
+                            df[col] = pd.to_datetime(df[col], errors='coerce')
+                        logger.debug(f"Converted '{col}' to datetime")
+                    elif dtype in ('int', 'integer', 'int64'):
+                        df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+                        logger.debug(f"Converted '{col}' to int")
+                    elif dtype in ('float', 'float64', 'double'):
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                        logger.debug(f"Converted '{col}' to float")
+                    elif dtype in ('str', 'string', 'object'):
+                        df[col] = df[col].astype(str)
+                        logger.debug(f"Converted '{col}' to string")
+                except Exception as e:
+                    logger.warning(f"Failed to convert column '{col}' to {dtype}: {e}")
+
+        logger.info(f"Column type conversions completed")
+
     # Debug: For ALB, show column information
     if pattern_type == 'ALB' and not df.empty:
         logger.debug(f"ALB DataFrame columns: {list(df.columns)[:10]}...")  # Show first 10 columns
@@ -715,23 +1044,23 @@ def parse_log_file_with_format(input_file, log_format_file, use_multiprocessing=
             logger.debug(f"Columns match: {set(df.columns) == set(format_info['columns'])}")
         else:
             logger.warning("No columns in format_info - columns may not be loaded from config.yaml")
-    
+
     return df
 
 
 def _parse_line(line, pattern, pattern_type, format_info=None):
     """Parse a single line based on pattern type
-    
+
     Args:
         line: Log line to parse
         pattern: Regex pattern
         pattern_type: Pattern type (ALB, JSON, HTTPD, GROK)
-        format_info: Format information dict (may contain 'columns' for ALB)
+        format_info: Format information dict (may contain 'columns')
     """
     line = line.strip()
     if not line:
         return None
-    
+
     if pattern_type == 'JSON':
         try:
             return json.loads(line)
@@ -742,41 +1071,45 @@ def _parse_line(line, pattern, pattern_type, format_info=None):
             match = re.match(pattern, line)
             if match:
                 groups = match.groups()
-                
-                # For ALB, use columns from config.yaml if available
-                if pattern_type == 'ALB':
-                    columns = format_info.get('columns', []) if format_info else []
-                    
-                    # If columns are available from config.yaml, use them
-                    if columns:
-                        # Debug: Check if groups count matches columns count (only on first call)
-                        # This helps identify pattern mismatch issues
-                        
-                        # Use config.yaml columns regardless of groups count
-                        # This supports ALB logs with any number of fields (34+ in config.yaml)
-                        result = {}
-                        for i, col in enumerate(columns):
-                            if i < len(groups):
-                                value = groups[i]
-                                # Handle empty strings and special values
-                                if value == '' or value == '-' or value == ' ' or value is None:
-                                    result[col] = None
-                                else:
-                                    result[col] = value
-                            else:
-                                # If not enough groups, set remaining columns to None
+
+                # Use columns from format_info if available (works for ALB, HTTPD, GROK, Nginx)
+                columns = format_info.get('columns', []) if format_info else []
+
+                if columns:
+                    # Map groups to column names from config
+                    result = {}
+                    for i, col in enumerate(columns):
+                        if i < len(groups):
+                            value = groups[i]
+                            # Handle empty strings and special values
+                            if value == '' or value == '-' or value == ' ' or value is None:
                                 result[col] = None
-                        
-                        # Validate that we have at least some key fields
+                            else:
+                                result[col] = value
+                        else:
+                            # If not enough groups, set remaining columns to None
+                            result[col] = None
+
+                    # Validate for ALB (strict validation)
+                    if pattern_type == 'ALB':
+                        # For ALB, validate that we have at least some key fields
                         if not any(result.get(col) for col in ['time', 'request_url', 'request_verb'] if col in result):
-                            # If key fields are all None, might be parsing error
                             return None
-                        
-                        return result
-                    else:
-                        # Fallback to default ALB mapping (when config.yaml is not available)
-                        # Map common fields - this is a minimal fallback
-                        min_fields = min(len(groups), 17)  # Support up to 17 basic fields
+
+                    # Validate for HTTPD/Nginx (less strict - just check for time or status)
+                    elif pattern_type == 'HTTPD':
+                        # For HTTPD, validate that we have at least time or status
+                        time_exists = any(result.get(col) for col in ['time', 'timestamp'] if col in result)
+                        status_exists = any(result.get(col) for col in ['status', 'status_code'] if col in result)
+                        if not (time_exists or status_exists):
+                            return None
+
+                    return result
+                else:
+                    # No columns defined - use fallback mapping
+                    if pattern_type == 'ALB':
+                        # Fallback to default ALB mapping
+                        min_fields = min(len(groups), 17)
                         result = {}
                         field_names = [
                             'type', 'time', 'elb', 'client_ip', 'client_port',
@@ -793,12 +1126,26 @@ def _parse_line(line, pattern, pattern_type, format_info=None):
                                     result[field_names[i]] = None
                                 else:
                                     result[field_names[i]] = value
-                        # Add any remaining groups as raw_groups
                         if len(groups) > min_fields:
                             result['_extra_groups'] = list(groups[min_fields:])
                         return result
-                else:
-                    # Generic field mapping for other types
+                    elif pattern_type == 'HTTPD':
+                        # Fallback for HTTPD (Apache Combined Log Format)
+                        if len(groups) >= 10:
+                            return {
+                                'client_ip': groups[0] if groups[0] not in ('', '-') else None,
+                                'user': groups[1] if groups[1] not in ('', '-') else None,
+                                'time': groups[2] if groups[2] not in ('', '-') else None,
+                                'request_method': groups[3] if groups[3] not in ('', '-') else None,
+                                'request_url': groups[4] if groups[4] not in ('', '-') else None,
+                                'request_proto': groups[5] if groups[5] not in ('', '-') else None,
+                                'status': groups[6] if groups[6] not in ('', '-') else None,
+                                'bytes_sent': groups[7] if groups[7] not in ('', '-') else None,
+                                'referer': groups[8] if len(groups) > 8 and groups[8] not in ('', '-') else None,
+                                'user_agent': groups[9] if len(groups) > 9 and groups[9] not in ('', '-') else None
+                            }
+
+                    # Generic fallback for other types
                     return {'raw_groups': groups}
             return None
         except Exception as e:
