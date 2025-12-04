@@ -1,42 +1,42 @@
-# Processing Time Statistics - Usage Guide
+# 처리 시간 통계 - 사용 가이드 (Processing Time Statistics - Usage Guide)
 
-This document explains how to use the new processing time statistics feature in AccessLogAnalyzer.
+이 문서는 AccessLogAnalyzer의 새로운 처리 시간 통계 기능을 사용하는 방법을 설명합니다.
 
-## Overview
+## 개요 (Overview)
 
-The `calculateStats` function has been enhanced to support multiple processing time field analysis with flexible sorting and Top N filtering.
+`calculateStats` 함수는 유연한 정렬 및 Top N 필터링과 함께 다중 처리 시간 필드 분석을 지원하도록 향상되었습니다.
 
-## Key Features
+## 주요 기능 (Key Features)
 
-### 1. Multiple Processing Time Fields
-Analyze multiple timing fields simultaneously:
-- `request_processing_time`: Time to receive request from client
-- `target_processing_time`: Time for backend to process request
-- `response_processing_time`: Time to send response back to client
+### 1. 다중 처리 시간 필드 (Multiple Processing Time Fields)
+여러 타이밍 필드를 동시에 분석합니다:
+- `request_processing_time`: 클라이언트로부터 요청을 받는 데 걸린 시간
+- `target_processing_time`: 백엔드가 요청을 처리하는 데 걸린 시간
+- `response_processing_time`: 클라이언트로 응답을 보내는 데 걸린 시간
 
-### 2. Comprehensive Statistics
-For each field, the following metrics are calculated:
-- **avg**: Average value
-- **sum**: Total sum
-- **median**: 50th percentile
-- **std**: Standard deviation
-- **min**: Minimum value
-- **max**: Maximum value
-- **p90**: 90th percentile
-- **p95**: 95th percentile
-- **p99**: 99th percentile
+### 2. 포괄적인 통계 (Comprehensive Statistics)
+각 필드에 대해 다음 메트릭이 계산됩니다:
+- **avg**: 평균값
+- **sum**: 총합
+- **median**: 50번째 백분위수 (중앙값)
+- **std**: 표준 편차
+- **min**: 최소값
+- **max**: 최대값
+- **p90**: 90번째 백분위수
+- **p95**: 95번째 백분위수
+- **p99**: 99번째 백분위수
 
-### 3. Flexible Sorting
-Sort results by any field and metric combination:
-- Sort by field: Any processing time field or 'count'
-- Sort by metric: 'avg', 'sum', 'median', 'p95', 'p99'
+### 3. 유연한 정렬 (Flexible Sorting)
+모든 필드 및 메트릭 조합으로 결과를 정렬합니다:
+- 필드별 정렬: 모든 처리 시간 필드 또는 'count'
+- 메트릭별 정렬: 'avg', 'sum', 'median', 'p95', 'p99'
 
-### 4. Top N Filtering
-Get only the top N URLs based on your criteria.
+### 4. Top N 필터링 (Top N Filtering)
+기준에 따라 상위 N개 URL만 가져옵니다.
 
-## Usage Examples
+## 사용 예제 (Usage Examples)
 
-### Example 1: Top 20 URLs by Average Request Processing Time
+### 예제 1: 평균 요청 처리 시간 기준 상위 20개 URL
 
 ```python
 from data_processor import calculateStats
@@ -51,14 +51,14 @@ print(f"Results saved to: {result['filePath']}")
 print(f"\nSummary:\n{result['summary']}")
 ```
 
-**Parameters:**
-- `statsType=url`: Calculate URL statistics
-- `processingTimeFields=request_processing_time,target_processing_time,response_processing_time`: Analyze all three fields
-- `sortBy=request_processing_time`: Sort by request processing time
-- `sortMetric=avg`: Use average metric for sorting
-- `topN=20`: Return only top 20 URLs
+**파라미터:**
+- `statsType=url`: URL 통계 계산
+- `processingTimeFields=request_processing_time,target_processing_time,response_processing_time`: 세 필드 모두 분석
+- `sortBy=request_processing_time`: 요청 처리 시간으로 정렬
+- `sortMetric=avg`: 정렬에 평균 메트릭 사용
+- `topN=20`: 상위 20개 URL만 반환
 
-**Output JSON Structure:**
+**출력 JSON 구조:**
 ```json
 {
   "urlStats": [
@@ -92,7 +92,7 @@ print(f"\nSummary:\n{result['summary']}")
 }
 ```
 
-### Example 2: Top 10 URLs by Sum of Target Processing Time
+### 예제 2: 타겟 처리 시간 합계 기준 상위 10개 URL
 
 ```python
 result = calculateStats(
@@ -102,9 +102,9 @@ result = calculateStats(
 )
 ```
 
-**Use Case:** Find URLs that consume the most total backend processing time.
+**사용 사례:** 총 백엔드 처리 시간을 가장 많이 소비하는 URL 찾기.
 
-### Example 3: Top 15 URLs by P95 Response Processing Time
+### 예제 3: P95 응답 처리 시간 기준 상위 15개 URL
 
 ```python
 result = calculateStats(
@@ -114,9 +114,9 @@ result = calculateStats(
 )
 ```
 
-**Use Case:** Find URLs with slowest response sending times (95th percentile).
+**사용 사례:** 응답 전송 시간이 가장 느린 URL 찾기 (95번째 백분위수).
 
-### Example 4: All Processing Time Fields, Sorted by P99
+### 예제 4: 모든 처리 시간 필드, P99 기준 정렬
 
 ```python
 result = calculateStats(
@@ -126,9 +126,9 @@ result = calculateStats(
 )
 ```
 
-**Use Case:** Find URLs with worst-case backend processing times.
+**사용 사례:** 최악의 백엔드 처리 시간을 가진 URL 찾기.
 
-## Parameter Reference
+## 파라미터 참조 (Parameter Reference)
 
 ### statsType
 - **Type**: String (comma-separated)
@@ -141,12 +141,12 @@ result = calculateStats(
   - `request_processing_time`
   - `target_processing_time`
   - `response_processing_time`
-  - Any custom processing time field in your logs
+  - 로그의 모든 사용자 정의 처리 시간 필드
 - **Example**: `processingTimeFields=request_processing_time,target_processing_time`
 
 ### sortBy
 - **Type**: String (field name)
-- **Options**: Any processing time field name, or 'count'
+- **Options**: 모든 처리 시간 필드 이름, 또는 'count'
 - **Default**: 'count'
 - **Example**: `sortBy=target_processing_time`
 
@@ -158,25 +158,25 @@ result = calculateStats(
 
 ### topN
 - **Type**: Integer
-- **Default**: None (returns all results)
+- **Default**: None (모든 결과 반환)
 - **Example**: `topN=20`
 
-## Performance Considerations
+## 성능 고려 사항 (Performance Considerations)
 
-### Multiprocessing
-- Automatically enabled for 100+ unique URLs
-- Significantly faster for large datasets
-- Can be disabled with `use_multiprocessing=False`
+### 멀티프로세싱 (Multiprocessing)
+- 고유 URL이 100개 이상일 때 자동으로 활성화됨
+- 대규모 데이터셋의 경우 훨씬 빠름
+- `use_multiprocessing=False`로 비활성화 가능
 
-### Example Performance
-- Dataset: 1,000,000 requests, 500 unique URLs
-- Without multiprocessing: ~30 seconds
-- With multiprocessing (8 cores): ~10 seconds
+### 예제 성능
+- 데이터셋: 1,000,000 요청, 500 고유 URL
+- 멀티프로세싱 미사용: ~30초
+- 멀티프로세싱 사용 (8코어): ~10초
 
-## Output Interpretation
+## 출력 해석 (Output Interpretation)
 
-### Summary Text
-The summary includes processing time details for top URLs:
+### 요약 텍스트 (Summary Text)
+요약에는 상위 URL에 대한 처리 시간 세부 정보가 포함됩니다:
 
 ```
 Total Requests: 1500000
@@ -191,54 +191,55 @@ Top URLs:
   ...
 ```
 
-### JSON Output
-Full statistics are saved to `stats_YYMMDD_HHMMSS.json` with complete metrics for all URLs.
+### JSON 출력
+전체 통계는 모든 URL에 대한 전체 메트릭과 함께 `stats_YYMMDD_HHMMSS.json`에 저장됩니다.
 
-## Common Use Cases
+## 일반적인 사용 사례 (Common Use Cases)
 
-### 1. Find Backend Bottlenecks
+### 1. 백엔드 병목 현상 찾기
 ```python
-# Top URLs by average backend processing time
+# 평균 백엔드 처리 시간 기준 상위 URL
 params='statsType=url;processingTimeFields=target_processing_time;sortBy=target_processing_time;sortMetric=avg;topN=20'
 ```
 
-### 2. Find Total Time Consumers
+### 2. 총 시간 소비자 찾기
 ```python
-# URLs consuming most total processing time
+# 총 처리 시간을 가장 많이 소비하는 URL
 params='statsType=url;processingTimeFields=target_processing_time;sortBy=target_processing_time;sortMetric=sum;topN=10'
 ```
 
-### 3. Find Worst-Case Scenarios
+### 3. 최악의 시나리오 찾기
 ```python
-# URLs with highest p99 processing times
+# p99 처리 시간이 가장 높은 URL
 params='statsType=url;processingTimeFields=request_processing_time,target_processing_time,response_processing_time;sortBy=target_processing_time;sortMetric=p99;topN=15'
 ```
 
-### 4. Comprehensive Analysis
+### 4. 포괄적인 분석
 ```python
-# All fields, all metrics, sorted by average
+# 모든 필드, 모든 메트릭, 평균으로 정렬
 params='statsType=url;processingTimeFields=request_processing_time,target_processing_time,response_processing_time;sortBy=target_processing_time;sortMetric=avg;topN=50'
 ```
 
-## Integration with Other Tools
+## 다른 도구와의 통합 (Integration with Other Tools)
 
-### Chain with Filtering
+### 필터링과 체인 연결
+
 ```python
-# 1. Find top slow URLs
+# 1. 상위 느린 URL 찾기
 stats_result = calculateStats(
     'access.log.gz',
     'format.json',
     params='statsType=url;processingTimeFields=target_processing_time;sortBy=target_processing_time;sortMetric=avg;topN=10'
 )
 
-# 2. Extract top URL list from JSON
+# 2. JSON에서 상위 URL 목록 추출
 with open(stats_result['filePath'], 'r') as f:
     stats_data = json.load(f)
     top_urls = [stat['url'] for stat in stats_data['urlStats'][:10]]
 
-# 3. Filter original log for these URLs
+# 3. 이 URL들에 대해 원본 로그 필터링
 from data_processor import filterByCondition
-# ... (create URL filter file)
+# ... (URL 필터 파일 생성)
 filtered_result = filterByCondition(
     'access.log.gz',
     'format.json',
@@ -246,32 +247,32 @@ filtered_result = filterByCondition(
     f'urlsFile={url_list_file}'
 )
 
-# 4. Generate visualization for slow URLs only
+# 4. 느린 URL에 대해서만 시각화 생성
 from data_visualizer import generateXlog
 generateXlog(filtered_result['filePath'], 'format.json', 'html')
 ```
 
-## Troubleshooting
+## 문제 해결 (Troubleshooting)
 
-### Field Not Found
-If a processing time field doesn't exist in your logs:
-- The field is skipped silently
-- Other fields are still processed
-- Check field names in your log format file
+### 필드를 찾을 수 없음 (Field Not Found)
+처리 시간 필드가 로그에 존재하지 않는 경우:
+- 필드는 조용히 건너뜁니다.
+- 다른 필드는 여전히 처리됩니다.
+- 로그 포맷 파일의 필드 이름을 확인하세요.
 
-### No Results
-If no statistics are returned:
-- Verify field names match log format
-- Check that numeric conversion succeeded
-- Review log format file fieldMap
+### 결과 없음 (No Results)
+통계가 반환되지 않는 경우:
+- 필드 이름이 로그 포맷과 일치하는지 확인하세요.
+- 숫자 변환이 성공했는지 확인하세요.
+- 로그 포맷 파일 fieldMap을 검토하세요.
 
-### Sorting Not Working
-If results aren't sorted as expected:
-- Verify sortBy field exists in processingTimeFields
-- Check sortMetric is valid ('avg', 'sum', etc.)
-- Ensure field has data (not all NaN)
+### 정렬이 작동하지 않음 (Sorting Not Working)
+결과가 예상대로 정렬되지 않는 경우:
+- sortBy 필드가 processingTimeFields에 존재하는지 확인하세요.
+- sortMetric이 유효한지 확인하세요 ('avg', 'sum' 등).
+- 필드에 데이터가 있는지 확인하세요 (모두 NaN이 아님).
 
-## Version Information
-- **Feature Added**: Version 2.0 (2025-01-11)
-- **Compatibility**: Requires pandas, numpy
-- **Python Version**: 3.7+
+## 버전 정보 (Version Information)
+- **기능 추가**: 버전 2.0 (2025-01-11)
+- **호환성**: pandas, numpy 필요
+- **Python 버전**: 3.7+

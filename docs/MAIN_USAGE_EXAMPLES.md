@@ -1,25 +1,25 @@
-# main.py Usage Examples
+# main.py 사용 예제 (main.py Usage Examples)
 
-This document provides examples of using the interactive CLI with the new Processing Time analysis feature.
+이 문서는 새로운 처리 시간 분석 기능과 함께 대화형 CLI를 사용하는 예제를 제공합니다.
 
-## Basic Usage
+## 기본 사용법 (Basic Usage)
 
 ```bash
-# Interactive menu mode
+# 대화형 메뉴 모드
 python main.py
 
-# File-specific mode
+# 파일별 모드
 python main.py access.log.gz
 
-# Example pipeline
+# 예제 파이프라인
 python main.py --example access.log.gz
 ```
 
-## Calculate Statistics with Processing Time Analysis
+## 처리 시간 분석을 포함한 통계 계산 (Calculate Statistics with Processing Time Analysis)
 
-When you select option 6 "Calculate statistics" from the menu, you'll now see additional options:
+메뉴에서 옵션 6 "Calculate statistics"를 선택하면 이제 추가 옵션이 표시됩니다:
 
-### Example Session
+### 예제 세션
 
 ```
 --- Calculate Statistics ---
@@ -61,23 +61,23 @@ Top URLs:
   ...
 ```
 
-## Use Cases
+## 사용 사례 (Use Cases)
 
-### Use Case 1: Find Top 10 URLs by Average Backend Processing Time
+### 사용 사례 1: 평균 백엔드 처리 시간 기준 상위 10개 URL 찾기
 
-**Input:**
+**입력:**
 - Statistics type: `url`
 - Analyze processing time fields: `y`
-- Processing time fields: `target_processing_time` (just this one)
+- Processing time fields: `target_processing_time` (이것 하나만)
 - Sort by field: `target_processing_time`
 - Sort metric: `avg`
 - Top N: `10`
 
-**Result:** Get the 10 URLs with the highest average backend processing time.
+**결과:** 평균 백엔드 처리 시간이 가장 높은 10개 URL을 가져옵니다.
 
-### Use Case 2: Find URLs Consuming Most Total Processing Time
+### 사용 사례 2: 총 처리 시간을 가장 많이 소비하는 URL 찾기
 
-**Input:**
+**입력:**
 - Statistics type: `url`
 - Analyze processing time fields: `y`
 - Processing time fields: `request_processing_time,target_processing_time,response_processing_time`
@@ -85,11 +85,11 @@ Top URLs:
 - Sort metric: `sum`
 - Top N: `20`
 
-**Result:** Get the 20 URLs that consume the most total backend processing time (useful for finding high-traffic slow endpoints).
+**결과:** 총 백엔드 처리 시간을 가장 많이 소비하는 20개 URL을 가져옵니다 (트래픽이 많은 느린 엔드포인트를 찾는 데 유용함).
 
-### Use Case 3: Find Worst-Case Response Times (P95)
+### 사용 사례 3: 최악의 응답 시간 (P95) 찾기
 
-**Input:**
+**입력:**
 - Statistics type: `url`
 - Analyze processing time fields: `y`
 - Processing time fields: `target_processing_time`
@@ -97,31 +97,31 @@ Top URLs:
 - Sort metric: `p95`
 - Top N: `15`
 
-**Result:** Get the 15 URLs with the worst 95th percentile response times.
+**결과:** 95번째 백분위수 응답 시간이 가장 나쁜 15개 URL을 가져옵니다.
 
-### Use Case 4: Simple Statistics Without Processing Time
+### 사용 사례 4: 처리 시간 없는 간단한 통계
 
-**Input:**
+**입력:**
 - Statistics type: `all`
 - Analyze processing time fields: `n`
 
-**Result:** Get standard statistics (request counts, status codes, basic response time stats) without detailed processing time breakdown.
+**결과:** 상세한 처리 시간 분석 없이 표준 통계(요청 수, 상태 코드, 기본 응답 시간 통계)를 가져옵니다.
 
-## Example Pipeline (Option 12)
+## 예제 파이프라인 (옵션 12) (Example Pipeline (Option 12))
 
-The example pipeline now demonstrates the new Processing Time analysis feature:
+예제 파이프라인은 이제 새로운 처리 시간 분석 기능을 보여줍니다:
 
 ```bash
 python main.py --example access.log.gz
 ```
 
-**What it does:**
-1. Calculates URL statistics with processing time analysis
-2. Gets Top 5 URLs by average `target_processing_time`
-3. Filters the log to show only those URLs
-4. Generates an XLog visualization
+**수행 작업:**
+1. 처리 시간 분석을 포함하여 URL 통계 계산
+2. 평균 `target_processing_time` 기준 상위 5개 URL 가져오기
+3. 해당 URL만 표시하도록 로그 필터링
+4. XLog 시각화 생성
 
-**Output:**
+**출력:**
 ```
 ======================================================================
 Example Pipeline: Top 5 URLs by Processing Time → XLog
@@ -161,32 +161,32 @@ Note: This pipeline used the NEW processing time analysis feature
       to get Top 5 URLs by target_processing_time in a single command!
 ```
 
-## Quick Reference
+## 빠른 참조 (Quick Reference)
 
-### Processing Time Fields
-- `request_processing_time` - Time to receive request from client
-- `target_processing_time` - Backend processing time
-- `response_processing_time` - Time to send response to client
+### 처리 시간 필드 (Processing Time Fields)
+- `request_processing_time` - 클라이언트로부터 요청을 받는 데 걸린 시간
+- `target_processing_time` - 백엔드 처리 시간
+- `response_processing_time` - 클라이언트로 응답을 보내는 데 걸린 시간
 
-### Sort Metrics
-- `avg` - Average value
-- `sum` - Total sum (useful for finding total time consumers)
-- `median` - 50th percentile
-- `p95` - 95th percentile
-- `p99` - 99th percentile
+### 정렬 메트릭 (Sort Metrics)
+- `avg` - 평균값
+- `sum` - 총합 (총 시간 소비자를 찾는 데 유용)
+- `median` - 50번째 백분위수 (중앙값)
+- `p95` - 95번째 백분위수
+- `p99` - 99번째 백분위수
 
-### Menu Options
-- **6** - Calculate statistics (includes new Processing Time analysis)
-- **12** - Generate Processing Time per URI (NEW - Time-series visualization)
-- **13** - Run example pipeline (demonstrates new feature)
+### 메뉴 옵션 (Menu Options)
+- **6** - 통계 계산 (새로운 처리 시간 분석 포함)
+- **12** - URI별 처리 시간 생성 (신규 - 시계열 시각화)
+- **13** - 예제 파이프라인 실행 (새로운 기능 시연)
 
-## Processing Time Visualization (Option 12)
+## 처리 시간 시각화 (옵션 12) (Processing Time Visualization (Option 12))
 
-### Interactive Time-Series Chart
+### 대화형 시계열 차트 (Interactive Time-Series Chart)
 
-Option 12 provides a time-series visualization of processing time per URI pattern.
+옵션 12는 URI 패턴별 처리 시간의 시계열 시각화를 제공합니다.
 
-#### Example Session
+#### 예제 세션
 
 ```
 --- Generate Processing Time per URI ---
@@ -237,45 +237,45 @@ Time interval for aggregation (default: 1min, examples: 1s, 10s, 1min, 5min, 1h)
     - Range slider for time navigation
 ```
 
-### Use Cases
+### 사용 사례 (Use Cases)
 
-#### Monitor Backend Performance Over Time
+#### 시간 경과에 따른 백엔드 성능 모니터링
 ```
 Field: target_processing_time
 Metric: avg or p95
 Interval: 1min or 5min
 ```
-See how backend processing time changes over time for top endpoints.
+상위 엔드포인트에 대해 백엔드 처리 시간이 시간 경과에 따라 어떻게 변하는지 확인합니다.
 
-#### Identify Performance Degradation
+#### 성능 저하 식별
 ```
 Field: target_processing_time
 Metric: p95 or p99
 Interval: 5min
 ```
-Spot when endpoints start showing worse worst-case performance.
+엔드포인트가 더 나쁜 최악의 성능을 보이기 시작하는 시점을 포착합니다.
 
-#### Compare Request/Response Times
-Run visualization twice:
+#### 요청/응답 시간 비교
+시각화를 두 번 실행:
 1. Field: request_processing_time, Metric: avg
 2. Field: response_processing_time, Metric: avg
 
-Compare the two charts to see if time is spent receiving requests or sending responses.
+두 차트를 비교하여 시간이 요청 수신 또는 응답 전송에 소비되는지 확인합니다.
 
-### Chart Features
+### 차트 기능 (Chart Features)
 
-- **Interactive Legend**: Click patterns to show/hide
-- **Zoom**: Drag to select area, or use zoom buttons
-- **Pan**: Use pan tool to navigate
-- **Range Slider**: Select time range at bottom
-- **Time Range Buttons**: Quick selection (1h, 6h, 12h, 1d, all)
-- **Export**: Download as PNG using camera button
+- **대화형 범례**: 패턴을 클릭하여 표시/숨김
+- **줌**: 드래그하여 영역 선택, 또는 줌 버튼 사용
+- **팬**: 팬 도구를 사용하여 탐색
+- **범위 슬라이더**: 하단에서 시간 범위 선택
+- **시간 범위 버튼**: 빠른 선택 (1h, 6h, 12h, 1d, all)
+- **내보내기**: 카메라 버튼을 사용하여 PNG로 다운로드
 
-## Field Availability Check (NEW)
+## 필드 가용성 확인 (신규) (Field Availability Check (NEW))
 
-The CLI now shows which fields are available in your log format BEFORE you start analysis, preventing wasted time parsing logs for unavailable features.
+CLI는 이제 분석을 시작하기 **전**에 로그 포맷에서 사용 가능한 필드를 표시하여, 사용할 수 없는 기능에 대해 로그를 파싱하는 시간 낭비를 방지합니다.
 
-### Example: Processing Time Field Selection
+### 예시: 처리 시간 필드 선택
 
 ```
 --- Generate Processing Time per URI ---
@@ -289,20 +289,20 @@ Select processing time field:
   Available columns in log format: client_ip, identity, user, time, request, status, bytes_sent, referer, user_agent, request_method
 ```
 
-### Field-Dependent Features
+### 필드 의존적 기능
 
-The following features check for field availability:
+다음 기능은 필드 가용성을 확인합니다:
 
-- **Option 10 (Received Bytes)**: Requires `received_bytes` field (ALB only)
-- **Option 11 (Sent Bytes)**: Requires `sent_bytes` or `bytes_sent` field
-- **Option 12 (Processing Time)**: Requires processing time fields (ALB, HTTPD_WITH_TIME, or NGINX)
-- **Option 13 (Request per Target)**: Requires `target_ip` field (ALB only)
+- **옵션 10 (Received Bytes)**: `received_bytes` 필드 필요 (ALB 전용)
+- **옵션 11 (Sent Bytes)**: `sent_bytes` 또는 `bytes_sent` 필드 필요
+- **옵션 12 (Processing Time)**: 처리 시간 필드 필요 (ALB, HTTPD_WITH_TIME, 또는 NGINX)
+- **옵션 13 (Request per Target)**: `target_ip` 필드 필요 (ALB 전용)
 
-### Supported Field Variants
+### 지원되는 필드 변형
 
-The system automatically checks for field name variants across different log formats:
+시스템은 다양한 로그 포맷에 걸쳐 필드 이름 변형을 자동으로 확인합니다:
 
-| Feature | Field Variants |
+| 기능 | 필드 변형 |
 |---------|----------------|
 | Sent Bytes | `sent_bytes`, `bytes_sent`, `size`, `response_size`, `body_bytes_sent` |
 | Received Bytes | `received_bytes`, `bytes`, `request_size` |
@@ -311,15 +311,15 @@ The system automatically checks for field name variants across different log for
 | Request Processing Time | `request_processing_time`, `request_time` |
 | Target Processing Time | `target_processing_time`, `upstream_response_time` |
 
-## Tips
+## 팁 (Tips)
 
-1. **Start Simple**: Try without Processing Time analysis first to understand the data
-2. **Use Top N**: For large datasets, use Top N to get only the most relevant URLs
-3. **Choose Right Metric**:
-   - `avg` - Find consistently slow endpoints
-   - `sum` - Find endpoints consuming most total time
-   - `p95`/`p99` - Find endpoints with worst-case performance
-4. **Multiple Fields**: Analyze all three processing time fields to understand where time is spent (client, backend, response)
-5. **Time-Series Visualization**: Use Option 12 to see how processing time changes over time
-6. **Combine Tools**: Use Option 6 to find slow URLs, then Option 12 to visualize their performance trends
-7. **Check Field Availability**: Before selecting a feature, check if your log format includes the required fields (see table above)
+1. **간단하게 시작**: 데이터를 이해하기 위해 먼저 처리 시간 분석 없이 시도하세요.
+2. **Top N 사용**: 대규모 데이터셋의 경우 Top N을 사용하여 가장 관련성 높은 URL만 가져오세요.
+3. **올바른 메트릭 선택**:
+   - `avg` - 지속적으로 느린 엔드포인트 찾기
+   - `sum` - 총 시간을 가장 많이 소비하는 엔드포인트 찾기
+   - `p95`/`p99` - 최악의 성능을 보이는 엔드포인트 찾기
+4. **다중 필드**: 세 가지 처리 시간 필드를 모두 분석하여 시간이 어디서 소비되는지 이해하세요 (클라이언트, 백엔드, 응답).
+5. **시계열 시각화**: 옵션 12를 사용하여 처리 시간이 시간 경과에 따라 어떻게 변하는지 확인하세요.
+6. **도구 결합**: 옵션 6을 사용하여 느린 URL을 찾은 다음, 옵션 12를 사용하여 성능 추세를 시각화하세요.
+7. **필드 가용성 확인**: 기능을 선택하기 전에 로그 포맷에 필수 필드가 포함되어 있는지 확인하세요 (위 표 참조).

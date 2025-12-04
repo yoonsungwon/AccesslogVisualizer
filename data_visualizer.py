@@ -1489,7 +1489,7 @@ def generateRequestPerURI(
     pattern_rules = _pattern_manager.load_rules(patterns_file_for_generalize) if patterns_file_for_generalize else None
     log_df['url_pattern'] = log_df[url_field].apply(
         lambda x: _generalize_url_with_rules(x, pattern_rules) if pd.notna(x) else 'Unknown'
-    )
+    ).astype('object')
 
     # Group by time interval and URL pattern
     log_df['time_bucket'] = log_df[time_field].dt.floor(interval)
@@ -2452,7 +2452,7 @@ def generateReceivedBytesPerURI(
     pattern_rules = _pattern_manager.load_rules(patterns_file_for_generalize) if patterns_file_for_generalize else None
     log_df['url_pattern'] = log_df[url_field].apply(
         lambda x: _generalize_url_with_rules(x, pattern_rules) if pd.notna(x) else 'Unknown'
-    )
+    ).astype('object')
 
     # Group by time interval and URL pattern
     log_df['time_bucket'] = log_df[time_field].dt.floor(interval)

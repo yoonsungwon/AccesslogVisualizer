@@ -190,7 +190,7 @@ MIT License
 
 ## 작성자
 
-- Technical Architecture Team
+- IT Optimization Team
 - Contact: user.sungwon
 
 ## 참고 문서

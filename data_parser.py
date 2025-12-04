@@ -283,12 +283,9 @@ def _generate_alb_format(input_file=None):
     elif log_format_type == 'ALB':
         return _load_alb_format_from_config(config)
     else:
-        # Unknown type - try legacy format first, then default ALB
-        logger.warning(f"Unknown log_format_type: {log_format_type}, trying legacy format")
-        if 'log_pattern' in config and 'columns' in config:
-            return _load_alb_format_from_config(config)
-        else:
-            return _get_default_alb_format()
+        # Unknown type - return default ALB
+        logger.warning(f"Unknown log_format_type: {log_format_type}, using default ALB format")
+        return _get_default_alb_format()
 
 
 def _get_default_alb_format():
@@ -316,14 +313,10 @@ def _load_alb_format_from_config(config):
     # Try format-specific section first
     alb_config = config.get('alb', {})
 
-    # Fall back to legacy top-level config
+    # Check if ALB config is valid
     if not alb_config or 'log_pattern' not in alb_config:
-        if 'log_pattern' in config and 'columns' in config:
-            alb_config = config
-            logger.info("Using legacy top-level ALB config")
-        else:
-            logger.warning("ALB config incomplete, using default")
-            return _get_default_alb_format()
+        logger.warning("ALB config incomplete, using default")
+        return _get_default_alb_format()
 
     pattern = alb_config.get('log_pattern')
     columns = alb_config.get('columns', [])

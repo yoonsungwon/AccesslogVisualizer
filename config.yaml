@@ -75,76 +75,6 @@ alb:
     (- |[^ ]*)" "([^"]*)" ([A-Z0-9-_]+) ([A-Za-z0-9.-]*) ([^ ]*) "([^"]*)" "([^"]*)"
     "([^"]*)" ([-.0-9]*) ([^ ]*) "([^"]*)" "([^"]*)" "([^ ]*)" "([^\s]+?)" "([^\s]+)"
     "([^ ]*)" "([^ ]*)" ?([^ ]*)?
-column_types:
-  actions_executed: str
-  chosen_cert_arn: str
-  classification: str
-  classification_reason: str
-  client_ip: str
-  client_port: int
-  conn_trace_id: str
-  domain_name: str
-  elb: str
-  elb_status_code: int
-  lambda_error_reason: str
-  matched_rule_priority: int
-  received_bytes: int
-  redirect_url: str
-  request_creation_time: datetime
-  request_processing_time: float
-  request_proto: str
-  request_url: str
-  request_verb: str
-  response_processing_time: float
-  sent_bytes: int
-  ssl_cipher: str
-  ssl_protocol: str
-  target_group_arn: str
-  target_ip: str
-  target_port: int
-  target_port_list: str
-  target_processing_time: float
-  target_status_code: int
-  target_status_code_list: str
-  time: datetime
-  trace_id: str
-  type: str
-  user_agent: str
-columns:
-- type
-- time
-- elb
-- client_ip
-- client_port
-- target_ip
-- target_port
-- request_processing_time
-- target_processing_time
-- response_processing_time
-- elb_status_code
-- target_status_code
-- received_bytes
-- sent_bytes
-- request_verb
-- request_url
-- request_proto
-- user_agent
-- ssl_cipher
-- ssl_protocol
-- target_group_arn
-- trace_id
-- domain_name
-- chosen_cert_arn
-- matched_rule_priority
-- request_creation_time
-- actions_executed
-- redirect_url
-- lambda_error_reason
-- target_port_list
-- target_status_code_list
-- classification
-- classification_reason
-- conn_trace_id
 grok:
   column_types:
     level: str
@@ -225,7 +155,6 @@ httpd_with_time:
   input_path: access.log
   log_pattern: ([^ ]*) [^ ]* ([^ ]*) \[([^\]]*)\] "([^ ]*) ([^ ]*) ([^"]*)" ([0-9]*)
     ([0-9\-]*) "([^"]*)" "([^"]*)" ([0-9]+)
-input_path: '*.gz'
 json:
   field_map:
     clientIp: client_ip
@@ -236,11 +165,6 @@ json:
     url: url
   input_path: access.log
 log_format_type: ALB
-log_pattern: ([^ ]*) ([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:-]([0-9]*) ([-.0-9]*)
-  ([-.0-9]*) ([-.0-9]*) (|[-0-9]*) (-|[-0-9]*) ([-0-9]*) ([-0-9]*) "([^ ]*) (.*) (-
-  |[^ ]*)" "([^"]*)" ([A-Z0-9-_]+) ([A-Za-z0-9.-]*) ([^ ]*) "([^"]*)" "([^"]*)" "([^"]*)"
-  ([-.0-9]*) ([^ ]*) "([^"]*)" "([^"]*)" "([^ ]*)" "([^\s]+?)" "([^\s]+)" "([^ ]*)"
-  "([^ ]*)" ?([^ ]*)?
 multiprocessing:
   chunk_size: 10000
   enabled: true
