@@ -1557,7 +1557,41 @@ def generateRequestPerURI(
     gc.collect()
     logger.debug("Memory freed after pivot operation")
 
+    # === EXPORT PROCESSED DATA (BEFORE GRAPH GENERATION) ===
+    # Ask user if they want to export the processed data
+    try:
+        export_choice = input("\nExport processed data before graph? (excel/csv/no, default: no): ").strip().lower()
+        if export_choice in ['excel', 'csv']:
+            from core.export_utils import export_to_excel, export_to_csv, generate_export_filename
+            export_file = generate_export_filename(inputFile, export_choice)
+            
+            try:
+                # Reset index to make time_bucket a column
+                pivot_for_export = pivot.reset_index()
+                
+                if export_choice == 'excel':
+                    result = export_to_excel(pivot_for_export, export_file, sheet_name='RequestCount')
+                else:
+                    result = export_to_csv(pivot_for_export, export_file)
+                
+                logger.info(f"\n✓ Processed data exported:")
+                logger.info(f"  Format: {export_choice.upper()}")
+                logger.info(f"  Rows: {len(pivot_for_export)}, Columns: {len(pivot_for_export.columns)}")
+                logger.info(f"  File: {result['filePath']}")
+                print(f"\n✓ Processed data exported:")
+                print(f"  Format: {export_choice.upper()}")
+                print(f"  Rows: {len(pivot_for_export)}, Columns: {len(pivot_for_export.columns)}")
+                print(f"  File: {result['filePath']}")
+            except Exception as e:
+                logger.error(f"✗ Export error: {e}")
+                print(f"✗ Export error: {e}")
+    except EOFError:
+        # Handle non-interactive environments
+        logger.debug("Non-interactive environment detected, skipping export prompt")
+        pass
+
     # Create interactive line chart (use Scattergl for better performance)
+
     fig = go.Figure()
     
     # Plotly's default color palette (same order as Plotly uses)

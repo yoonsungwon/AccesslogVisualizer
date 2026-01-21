@@ -2176,7 +2176,78 @@ def aggregate_data(log_df):
     return result_df
 
 
-# Main function for testing
+# ============================================================================
+# MCP Tool: exportData
+# ============================================================================
+
+def exportData(
+    inputFile: str,
+    logFormatFile: str,
+    exportFormat: str,
+    params: str = ''
+) -> Dict[str, Any]:
+    """
+    Export parsed log data to Excel or CSV format.
+    
+    Args:
+        inputFile (str): Input log file path
+        logFormatFile (str): Log format JSON file path
+        exportFormat (str): Export format ('excel' or 'csv')
+        params (str): Optional parameters (delimiter for CSV, sheet name for Excel)
+        
+    Returns:
+        dict: {
+            'filePath': str (absolute path),
+            'format': str,
+            'totalRows': int,
+            'fileSize': str
+        }
+    """
+    # Validate inputs
+    if not inputFile or not os.path.exists(inputFile):
+        raise CustomFileNotFoundError(inputFile)
+    if not logFormatFile or not os.path.exists(logFormatFile):
+        raise CustomFileNotFoundError(logFormatFile)
+    if exportFormat not in ['excel', 'csv']:
+        raise ValidationError('exportFormat', f"Invalid format: {exportFormat}. Must be 'excel' or 'csv'")
+    
+    # Parse parameters
+    param_dict = ParamParser.parse(params)
+    
+    # Import export utilities
+    from core.export_utils import export_to_excel, export_to_csv, generate_export_filename
+    
+    # Parse log file
+    from data_parser import parse_log_file_with_format
+    logger.info(f"Parsing log file for export: {inputFile}")
+    log_df = parse_log_file_with_format(inputFile, logFormatFile)
+    
+    if log_df.empty:
+        raise ValueError("No data to export")
+    
+    # Generate output filename
+    output_file = generate_export_filename(inputFile, exportFormat)
+    
+    # Export based on format
+    if exportFormat == 'excel':
+        sheet_name = param_dict.get('sheetName', 'LogData')
+        result = export_to_excel(log_df, output_file, sheet_name=sheet_name)
+    elif exportFormat == 'csv':
+        delimiter = param_dict.get('delimiter', ',')
+        encoding = param_dict.get('encoding', 'utf-8')
+        result = export_to_csv(log_df, output_file, delimiter=delimiter, encoding=encoding)
+    else:
+        raise ValueError(f"Unknown export format: {exportFormat}")
+    
+    logger.info(f"Export completed: {result['filePath']} ({result['totalRows']} rows, {result['fileSize']})")
+    
+    return result
+
+
+# ============================================================================
+# Legacy Function: aggregate_data (for main.py)
+# ============================================================================
+
 if __name__ == "__main__":
     logger.info("Data Processor Module - MCP Tools")
     logger.info("Available tools:")
@@ -2184,3 +2255,4 @@ if __name__ == "__main__":
     logger.info("  - extractUriPatterns(inputFile, logFormatFile, extractionType, params)")
     logger.info("  - filterUriPatterns(urisFile, params)")
     logger.info("  - calculateStats(inputFile, logFormatFile, params)")
+    logger.info("  - exportData(inputFile, logFormatFile, exportFormat, params)")

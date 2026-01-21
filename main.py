@@ -1,6 +1,5 @@
-#!/mnt/c/bucket/AccesslogAnalyzer/venv/bin/python3
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
-###!/usr/bin/python3
 """
 Main script for Access Log Analyzer - MCP Tool-based Architecture
 
@@ -136,7 +135,30 @@ def select_time_field():
     return time_field
 
 
+def ask_export_option():
+    """
+    Ask user if they want to export data before visualization.
+    
+    Returns:
+        str: 'excel', 'csv', or None
+    """
+    print("\n--- Export Option (Optional) ---")
+    print("  Do you want to export data to Excel or CSV?")
+    print("    1. Excel (.xlsx)")
+    print("    2. CSV (.csv)")
+    print("    3. Skip export")
+    export_choice = input("\n  Select option (1-3, default: 3): ").strip()
+    
+    if export_choice == '1':
+        return 'excel'
+    elif export_choice == '2':
+        return 'csv'
+    else:
+        return None
+
+
 def interactive_menu(log_file=None):
+
     """Interactive menu for tool selection"""
     print_banner()
 
@@ -184,11 +206,12 @@ def interactive_menu(log_file=None):
         print("  12. Generate Processing Time per URI (NEW)")
         print("  13. Generate Request Count per Target (NEW)")
         print("  14. Generate Request Count per Client IP (NEW)")
-        print("  15. Run example pipeline")
+        print("  15. Export data to Excel/CSV")
+        print("  16. Run example pipeline")
         print("  0. Exit")
         print("="*70)
 
-        choice = input("\nSelect operation (0-15): ").strip()
+        choice = input("\nSelect operation (0-16): ").strip()
 
         if choice == '0':
             print("\nExiting. Goodbye!")
@@ -222,6 +245,8 @@ def interactive_menu(log_file=None):
         elif choice == '14':
             generate_request_per_client_ip(log_file, log_format_file)
         elif choice == '15':
+            export_data_standalone(log_file, log_format_file)
+        elif choice == '16':
             run_example_pipeline(log_file, log_format_file)
         else:
             print("Invalid choice. Please try again.")
@@ -395,11 +420,39 @@ def calculate_statistics(log_file, log_format_file):
         print(f"✗ Error: {e}")
 
 
+def export_data_standalone(log_file, log_format_file):
+    """Standalone export operation"""
+    print("\n--- Export Data ---")
+    print("  1. Excel (.xlsx)")
+    print("  2. CSV (.csv)")
+    export_choice = input("\nSelect format (1-2): ").strip()
+    
+    if export_choice == '1':
+        export_format = 'excel'
+    elif export_choice == '2':
+        export_format = 'csv'
+    else:
+        print("Invalid choice.")
+        return
+    
+    try:
+        from data_processor import exportData
+        result = exportData(log_file, log_format_file, export_format)
+        print(f"\n✓ Data exported:")
+        print(f"  Format: {export_format.upper()}")
+        print(f"  Total rows: {result['totalRows']}")
+        print(f"  File size: {result['fileSize']}")
+        print(f"  Output file: {result['filePath']}")
+    except Exception as e:
+        print(f"✗ Error: {e}")
+
+
 def generate_xlog_viz(log_file, log_format_file):
     """Generate XLog visualization"""
     print("\n--- Generate XLog ---")
 
     # Ask for grouping method
+
     print("\n  Select grouping method:")
     print("    1. Group by Status Code (default)")
     print("    2. Group by URL Pattern")
@@ -493,6 +546,7 @@ def generate_request_cnt(log_file, log_format_file):
     print("\n--- Generate Request Count per URI ---")
     
     # Check for existing pattern files in the same directory
+
     log_file_path = Path(log_file)
     log_dir = log_file_path.parent
     
@@ -1042,7 +1096,8 @@ def generate_request_per_client_ip(log_file, log_format_file):
     """Generate Request Count per Client IP visualization"""
     print("\n--- Generate Request Count per Client IP ---")
 
-    # Get user preferences
+    # Check for required fields
+
     top_n_input = input("\nNumber of top client IPs to display (default: 20): ").strip()
     top_n = int(top_n_input) if top_n_input else 20
 
