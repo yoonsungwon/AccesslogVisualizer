@@ -77,6 +77,8 @@ config.yaml에서 다음 로그 포맷을 설정할 수 있습니다:
   - 필드 이름 매핑 지원
 - **GROK**: Custom patterns
   - 정규표현식 기반 커스텀 패턴
+- **Custom**: 사용자 정의 포맷
+  - `config.yaml`에 임의의 섹션 이름(예: `httpd_custom`)으로 정의하여 사용 가능
 
 ### 로그 포맷별 필드 가용성
 
@@ -116,7 +118,13 @@ config.yaml에서 다음 로그 포맷을 설정할 수 있습니다:
 
 ```yaml
 # 사용할 로그 포맷 타입 지정
-log_format_type: 'HTTPD'  # ALB, HTTPD, HTTPD_WITH_TIME, NGINX, JSON, GROK
+log_format_type: 'HTTPD'  # ALB, HTTPD, HTTPD_WITH_TIME, NGINX, JSON, GROK, 또는 사용자 정의 섹션 이름
+
+# 사용자 정의 포맷 예시 (httpd_custom)
+httpd_custom:
+  log_pattern: '([^ ]*) ([^ ]*) ...'
+  columns: ['client_ip', 'time', ...]
+  field_map: {timestamp: 'time', ...}
 
 # HTTPD (Apache Combined Log Format)
 httpd:

@@ -26,7 +26,7 @@ from core.exceptions import (
     InvalidFormatError,
     ParseError
 )
-from core.config import ConfigManager
+from core.config import ConfigManager, load_config
 from core.logging_config import get_logger
 
 # Setup logger
@@ -82,6 +82,8 @@ def recommendAccessLogFormat(inputFile: str) -> Dict[str, Any]:
         if all(key in existing_format for key in ['logPattern', 'patternType', 'fieldMap']):
             # Return absolute path for logFormatFile
             existing_format['logFormatFile'] = str(Path(latest_format_file).resolve())
+            existing_format['configSource'] = 'Existing Log Format File'
+            existing_format['configType'] = existing_format.get('patternType', 'Unknown')
             return existing_format
     
     # Sample lines from input file
@@ -90,12 +92,69 @@ def recommendAccessLogFormat(inputFile: str) -> Dict[str, Any]:
     if not sample_lines:
         raise ValueError(f"No valid lines found in {inputFile}")
     
+    # [NEW] Try to load format from config.yaml first (Prioritize Config)
+    try:
+        config = load_config() 
+        if config and config.get('log_format_type'):
+            logger.info(f"Using log_format_type from config: {config['log_format_type']}")
+            # Use the refactored function that handles all types from config
+            format_info = _generate_format_from_config(inputFile, config)
+            
+            # Test pattern on sample lines to ensure it works
+            success_count = 0
+            failed_sample_lines = []
+            
+            for line_num, line in enumerate(sample_lines[:50], 1):
+                if _test_pattern(line, format_info['logPattern'], format_info['patternType']):
+                    success_count += 1
+                else:
+                    if line.strip():
+                        failed_sample_lines.append((line_num, line))
+            
+            success_rate = success_count / min(50, len(sample_lines))
+            logger.info(f"Config format success rate: {success_rate}")
+            
+            # If success rate is good enough, use it
+            if success_rate > 0.5:
+                # Generate logFormatFile path
+                input_path = Path(inputFile)
+                timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
+                log_format_file = input_path.parent / f"logformat_{timestamp}.json"
+                
+                result = {
+                    'logFormatFile': str(log_format_file.resolve()),
+                    'logPattern': format_info['logPattern'],
+                    'patternType': format_info['patternType'],
+                    'fieldMap': format_info['fieldMap'],
+                    'responseTimeUnit': format_info['responseTimeUnit'],
+                    'timezone': format_info['timezone'],
+                    'successRate': success_rate,
+                    'confidence': 1.0,  # High confidence since it came from config
+                    'configSource': 'Config File (config.yaml)',
+                    'configType': config['log_format_type']
+                }
+                
+                if 'columns' in format_info:
+                    result['columns'] = format_info['columns']
+                if 'columnTypes' in format_info:
+                    result['columnTypes'] = format_info['columnTypes']
+                    
+                with open(log_format_file, 'w', encoding='utf-8') as f:
+                    json.dump(result, f, indent=2, ensure_ascii=False)
+                    
+                return result
+            else:
+                logger.warning("Config format success rate too low, falling back to auto-detection")
+
+    except Exception as e:
+        logger.warning(f"Failed to load format from config: {e}")
+
     # Detect log type
     log_type, confidence = _detect_log_type(sample_lines)
     
     # Generate format candidates based on type
     if log_type == 'ALB':
-        format_info = _generate_alb_format(inputFile)
+        format_info = _generate_format_from_config(inputFile) # Use new name
     elif log_type == 'JSON':
         format_info = _generate_json_format(sample_lines)
     elif log_type == 'APACHE':
@@ -139,7 +198,9 @@ def recommendAccessLogFormat(inputFile: str) -> Dict[str, Any]:
         'responseTimeUnit': format_info['responseTimeUnit'],
         'timezone': format_info['timezone'],
         'successRate': success_rate,
-        'confidence': confidence * success_rate
+        'confidence': confidence * success_rate,
+        'configSource': 'Auto-detection',
+        'configType': format_info['patternType']
     }
     
     # Include columns if available (for ALB parsing with config.yaml)
@@ -222,70 +283,86 @@ def _detect_log_type(sample_lines: List[str]) -> Tuple[str, float]:
     return detected_type, confidence
 
 
-def _generate_alb_format(input_file=None):
+def _generate_format_from_config(input_file=None, config=None):
     """Generate log format specification using config.yaml if available
-
-    Supports multiple log format types: ALB, HTTPD, JSON, GROK, Nginx
-
-    Args:
-        input_file (str, optional): Input log file path to find config.yaml in same directory
-
-    Returns:
-        dict: Format specification with pattern, columns, field_map, etc.
+    
+    Supports multiple log format types: ALB, HTTPD, JSON, GROK, Nginx, and Custom
     """
-    # Try to load config.yaml
-    config = None
-    config_paths = []
+    # Try to load config.yaml if not provided
+    if config is None:
+        config_paths = []
+        if input_file:
+            input_path = Path(input_file)
+            config_paths.append(input_path.parent / 'config.yaml')
+            config_paths.append(input_path.parent.parent / 'config.yaml')
+        config_paths.append(Path.cwd() / 'config.yaml')
+        script_dir = Path(__file__).parent
+        config_paths.append(script_dir / 'config.yaml')
 
-    # Search for config.yaml in possible locations
-    if input_file:
-        input_path = Path(input_file)
-        # 1. Same directory as input file
-        config_paths.append(input_path.parent / 'config.yaml')
-        # 2. Parent directory
-        config_paths.append(input_path.parent.parent / 'config.yaml')
-
-    # 3. Current working directory
-    config_paths.append(Path.cwd() / 'config.yaml')
-    # 4. Script directory (where data_parser.py is located)
-    script_dir = Path(__file__).parent
-    config_paths.append(script_dir / 'config.yaml')
-
-    # Try to load config.yaml
-    for config_path in config_paths:
-        if config_path.exists():
-            try:
-                config = load_config_legacy(str(config_path))
-                logger.info(f"Loaded config from: {config_path}")
-                break
-            except Exception as e:
-                logger.warning(f"Failed to load config from {config_path}: {e}")
-                continue
+        for config_path in config_paths:
+            if config_path.exists():
+                try:
+                    config = load_config(config_path)
+                    logger.info(f"Loaded config from: {config_path}")
+                    break
+                except Exception as e:
+                    logger.warning(f"Failed to load config from {config_path}: {e}")
+                    continue
 
     if not config:
-        # No config found - return default ALB format
         logger.info("No config.yaml found, using default ALB format")
         return _get_default_alb_format()
 
     # Determine log format type
-    log_format_type = config.get('log_format_type', 'ALB').upper()
+    log_format_type = config.get('log_format_type', 'ALB')
     logger.info(f"Log format type from config: {log_format_type}")
+    
+    # Normalize type for standard checks
+    log_format_type_upper = log_format_type.upper()
 
     # Handle different log format types
-    if log_format_type == 'HTTPD' or log_format_type == 'APACHE':
+    if log_format_type_upper == 'HTTPD' or log_format_type_upper == 'APACHE':
         return _load_httpd_format_from_config(config)
-    elif log_format_type == 'NGINX':
+    elif log_format_type_upper == 'NGINX':
         return _load_nginx_format_from_config(config)
-    elif log_format_type == 'JSON':
+    elif log_format_type_upper == 'JSON':
         return _load_json_format_from_config(config)
-    elif log_format_type == 'GROK':
+    elif log_format_type_upper == 'GROK':
         return _load_grok_format_from_config(config)
-    elif log_format_type == 'ALB':
+    elif log_format_type_upper == 'ALB':
         return _load_alb_format_from_config(config)
     else:
+        # Check for custom section with exact name
+        if log_format_type in config:
+            logger.info(f"Loading custom format section: {log_format_type}")
+            return _load_generic_format_from_config(config, log_format_type)
+            
         # Unknown type - return default ALB
         logger.warning(f"Unknown log_format_type: {log_format_type}, using default ALB format")
         return _get_default_alb_format()
+
+
+def _load_generic_format_from_config(config, section_name):
+    """Load generic/custom format from config section"""
+    section = config.get(section_name, {})
+    
+    pattern = section.get('log_pattern', r'.*')
+    columns = section.get('columns', [])
+    field_map = section.get('field_map', {})
+    column_types = section.get('column_types', {})
+    
+    if not field_map:
+        field_map = _build_field_map_from_columns(columns, {})
+        
+    return {
+        'logPattern': pattern,
+        'patternType': 'HTTPD', # Assume HTTPD-like regex for custom formats
+        'fieldMap': field_map,
+        'columns': columns,
+        'columnTypes': column_types,
+        'responseTimeUnit': 'ms', # Default to ms
+        'timezone': 'fromLog'
+    }
 
 
 def _get_default_alb_format():

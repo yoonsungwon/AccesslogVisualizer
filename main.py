@@ -179,6 +179,10 @@ def interactive_menu(log_file=None):
     try:
         format_result = recommendAccessLogFormat(log_file)
         print(f"  ✓ Pattern Type: {format_result['patternType']}")
+        if 'configSource' in format_result:
+            print(f"  ✓ Config Source: {format_result['configSource']}")
+        if 'configType' in format_result:
+            print(f"  ✓ Config Type: {format_result['configType']}")
         print(f"  ✓ Confidence: {format_result['confidence']:.1%}")
         print(f"  ✓ Success Rate: {format_result['successRate']:.1%}")
         print(f"  ✓ Format File: {format_result['logFormatFile']}")

@@ -88,6 +88,32 @@ grok:
     timestamp: timestamp
   input_path: custom.log
   log_pattern: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[([^\]]+)\] (.*)
+httpd_custom:
+  column_types:
+    client_ip: str
+    identity: str
+    user: str
+    time: datetime
+    request: str
+    status: int
+    bytes_sent: int
+    response_time_us: int
+  columns:
+  - client_ip
+  - identity
+  - user
+  - time
+  - request
+  - status
+  - bytes_sent
+  - response_time_us
+  field_map:
+    timestamp: time
+    status: status
+    clientIp: client_ip
+    responseTime: response_time_us
+  input_path: access.log
+  log_pattern: '([^ ]*) ([^ ]*) ([^ ]*) \[([^\]]*)\] "([^"]*)" ([0-9]*) ([0-9\-]*) ([0-9]+)'
 httpd:
   column_types:
     client_ip: str
@@ -164,7 +190,7 @@ json:
     timestamp: timestamp
     url: url
   input_path: access.log
-log_format_type: ALB
+log_format_type: httpd_custom
 multiprocessing:
   chunk_size: 10000
   enabled: true
