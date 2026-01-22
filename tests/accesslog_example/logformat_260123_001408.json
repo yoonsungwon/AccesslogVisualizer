@@ -1,0 +1,37 @@
+{
+  "logFormatFile": "C:\\bucket\\AccesslogAnalyzer\\tests\\accesslog_example\\logformat_260123_001408.json",
+  "logPattern": "([^ ]*) ([^ ]*) ([^ ]*) \\[([^\\]]*)\\] \"([^\"]*)\" ([0-9]*) ([0-9\\-]*) ([0-9]+)",
+  "patternType": "HTTPD",
+  "fieldMap": {
+    "timestamp": "time",
+    "status": "status",
+    "clientIp": "client_ip",
+    "responseTime": "response_time_us"
+  },
+  "responseTimeUnit": "ms",
+  "timezone": "fromLog",
+  "successRate": 1.0,
+  "confidence": 1.0,
+  "configSource": "Config File (config.yaml)",
+  "configType": "httpd_custom",
+  "columns": [
+    "client_ip",
+    "identity",
+    "user",
+    "time",
+    "request",
+    "status",
+    "bytes_sent",
+    "response_time_us"
+  ],
+  "columnTypes": {
+    "client_ip": "str",
+    "identity": "str",
+    "user": "str",
+    "time": "datetime",
+    "request": "str",
+    "status": "int",
+    "bytes_sent": "int",
+    "response_time_us": "int"
+  }
+}

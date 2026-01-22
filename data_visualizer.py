@@ -4342,8 +4342,13 @@ def generateProcessingTimePerURI(
     # Get potential field names for column selection
     time_field_candidates = ['time', 'timestamp', 'datetime', '@timestamp']
     url_field_candidates = ['url', 'request_url', 'request', 'path', 'uri']
-    # Include the specified processing time field
-    processing_time_candidates = [processingTimeField]
+    # Include various possible names for processing time field
+    processing_time_candidates = [
+        processingTimeField,
+        'target_processing_time', 'response_time', 'request_processing_time',
+        'response_processing_time', 'elapsed_time', 'duration', 'processing_time',
+        'response_time_us', 'response_time_ms', 'request_time'
+    ]
 
     # Parse log file with only required columns to reduce memory usage (80-90% reduction)
     from data_parser import parse_log_file_with_format
@@ -4356,21 +4361,39 @@ def generateProcessingTimePerURI(
     if log_df.empty:
         raise ValueError("No data to visualize")
 
-    # Get field mappings
+    # Get field mappings using FieldMapper
     # Use user-selected timeField parameter
     time_field = timeField
-    url_field = format_info['fieldMap'].get('url', 'request_url')
+    url_field = FieldMapper.find_field(log_df, 'url', format_info)
 
-    # Check if processing time field exists
-    if processingTimeField not in log_df.columns:
-        raise ValueError(f"Processing time field '{processingTimeField}' not found in DataFrame. Available columns: {list(log_df.columns)[:20]}...")
+    # For processing time field, provide possible alternative names
+    possible_processing_time_fields = [
+        processingTimeField,
+        'target_processing_time', 'response_time', 'request_processing_time',
+        'response_processing_time', 'elapsed_time', 'duration', 'processing_time',
+        'response_time_us', 'response_time_ms', 'request_time'
+    ]
+
+    # Try to find the processing time field using FieldMapper
+    processing_time_field_actual = None
+    for candidate in possible_processing_time_fields:
+        if candidate in log_df.columns:
+            processing_time_field_actual = candidate
+            logger.info(f"Using '{processing_time_field_actual}' as processing time field (requested: '{processingTimeField}')")
+            break
+
+    # If still not found, raise error
+    if not processing_time_field_actual:
+        raise ValueError(f"Processing time field '{processingTimeField}' not found in DataFrame. "
+                        f"Tried alternatives: {possible_processing_time_fields[:5]}... "
+                        f"Available columns: {list(log_df.columns)[:20]}...")
 
     # Convert types
     log_df[time_field] = pd.to_datetime(log_df[time_field], errors='coerce')
-    log_df[processingTimeField] = pd.to_numeric(log_df[processingTimeField], errors='coerce')
-    log_df = log_df.dropna(subset=[time_field, processingTimeField])
+    log_df[processing_time_field_actual] = pd.to_numeric(log_df[processing_time_field_actual], errors='coerce')
+    log_df = log_df.dropna(subset=[time_field, processing_time_field_actual])
 
-    logger.info(f"Loaded {len(log_df)} records with valid {processingTimeField}")
+    logger.info(f"Loaded {len(log_df)} records with valid {processing_time_field_actual}")
 
     # Generalize URLs
     from data_processor import _generalize_url_with_rules, _pattern_manager
@@ -4386,10 +4409,10 @@ def generateProcessingTimePerURI(
     # If patterns were not loaded from file, extract top N by processing time
     if not patternsFile or not os.path.exists(patternsFile):
         # Get top N URL patterns by total processing time (sum)
-        pattern_totals = log_df.groupby('url_pattern')[processingTimeField].sum().sort_values(ascending=False)
+        pattern_totals = log_df.groupby('url_pattern')[processing_time_field_actual].sum().sort_values(ascending=False)
         top_patterns = pattern_totals.head(topN).index.tolist()
 
-        logger.info(f"Extracted top {len(top_patterns)} patterns by {processingTimeField} sum")
+        logger.info(f"Extracted top {len(top_patterns)} patterns by {processing_time_field_actual} sum")
 
         # Mark patterns not in top_patterns as "Others"
         log_df.loc[~log_df['url_pattern'].isin(top_patterns) & (log_df['url_pattern'] != 'Unknown'), 'url_pattern'] = 'Others'
@@ -4412,7 +4435,7 @@ def generateProcessingTimePerURI(
         metadata = {
             'sourceFile': str(inputFile),
             'topN': topN,
-            'criteria': f'{processingTimeField}_sum'
+            'criteria': f'{processing_time_field_actual}_sum'
         }
         patternsFile = _save_or_merge_patterns(patterns_file_path, pattern_rules, metadata)
         logger.info(f"Saved patterns to {patterns_file_path}")
@@ -4430,22 +4453,22 @@ def generateProcessingTimePerURI(
 
     # Calculate metric for each time bucket and URL pattern
     if metric == 'avg':
-        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].mean().unstack(fill_value=0)
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processing_time_field_actual].mean().unstack(fill_value=0)
         metric_label = 'Average'
     elif metric == 'sum':
-        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].sum().unstack(fill_value=0)
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processing_time_field_actual].sum().unstack(fill_value=0)
         metric_label = 'Sum'
     elif metric == 'median':
-        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].median().unstack(fill_value=0)
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processing_time_field_actual].median().unstack(fill_value=0)
         metric_label = 'Median'
     elif metric == 'p95':
-        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].quantile(0.95).unstack(fill_value=0)
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processing_time_field_actual].quantile(0.95).unstack(fill_value=0)
         metric_label = '95th Percentile'
     elif metric == 'p99':
-        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].quantile(0.99).unstack(fill_value=0)
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processing_time_field_actual].quantile(0.99).unstack(fill_value=0)
         metric_label = '99th Percentile'
     elif metric == 'max':
-        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processingTimeField].max().unstack(fill_value=0)
+        pivot = log_df.groupby(['time_bucket', 'url_pattern'])[processing_time_field_actual].max().unstack(fill_value=0)
         metric_label = 'Maximum'
     else:
         raise ValueError(f"Unknown metric: {metric}")
@@ -4544,7 +4567,7 @@ def generateProcessingTimePerURI(
 
     # Generate output file
     timestamp_output = datetime.now().strftime('%y%m%d_%H%M%S')
-    output_file = input_path.parent / f"proctime_{processingTimeField}_{metric}_{timestamp_output}.html"
+    output_file = input_path.parent / f"proctime_{processing_time_field_actual}_{metric}_{timestamp_output}.html"
 
     # Save to HTML with plotly div ID
     plotly_div_id = f'plotly-div-{timestamp_output}'
@@ -4558,7 +4581,7 @@ def generateProcessingTimePerURI(
             'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
             'toImageButtonOptions': {
                 'format': 'png',
-                'filename': f'proctime_{processingTimeField}_{metric}',
+                'filename': f'proctime_{processing_time_field_actual}_{metric}',
                 'height': 600,
                 'width': 1200,
                 'scale': 2
@@ -4619,7 +4642,7 @@ def generateProcessingTimePerURI(
         'totalTransactions': total_transactions,
         'patternsFile': patternsFile,
         'patternsDisplayed': len(actual_patterns),
-        'processingTimeField': processingTimeField,
+        'processingTimeField': processing_time_field_actual,
         'metric': metric,
         'interval': interval,
         'topN': topN

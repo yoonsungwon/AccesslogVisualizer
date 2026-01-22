@@ -208,3 +208,18 @@ __marimo__/
 
 # Claude
 .claude/
+
+# AccessLogAnalyzer output files
+*.html
+sentbytes_*.html
+proctime_*.html
+xlog_*.html
+requestcount_*.html
+dashboard_*.html
+receivebytes_*.html
+requestpertarget_*.html
+requestperclientip_*.html
+stats_*.json
+filtered_*.log
+urls_*.json
+top*_urls.json

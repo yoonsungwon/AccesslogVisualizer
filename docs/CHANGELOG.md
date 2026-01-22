@@ -4,6 +4,55 @@
 
 ## 최근 변경 사항 및 개선 사항
 
+### Processing Time 필드 자동 매핑 개선 (2026-01-23)
+
+**문제**: `generateProcessingTimePerURI` 함수가 다양한 로그 형식의 processing time 필드명 변형을 인식하지 못하는 문제가 있었습니다. 예를 들어, HTTPD 로그의 `response_time_us` 필드가 `target_processing_time`으로 요청되면 실패했습니다.
+
+**해결책**:
+
+#### 1. `data_visualizer.py` - `generateProcessingTimePerURI` 함수 개선
+- **자동 필드 매핑 로직 추가**: `generateSentBytesPerURI`와 동일한 방식으로 필드 매핑 구현
+- **다양한 필드명 지원**:
+  - `target_processing_time`
+  - `response_time`
+  - `response_time_us`
+  - `response_time_ms`
+  - `request_processing_time`
+  - `response_processing_time`
+  - `elapsed_time`
+  - `duration`
+  - `processing_time`
+  - `request_time`
+- **명확한 로깅**: 실제 사용된 필드명을 로그에 출력
+  ```
+  INFO - Using 'response_time_us' as processing time field (requested: 'target_processing_time')
+  ```
+
+#### 2. `main.py` - 필드 가용성 확인 개선
+- **Processing time variants 확장**: 모든 processing time 관련 필드에 대해 다양한 변형 추가
+  ```python
+  'request_processing_time': ['request_processing_time', 'request_time', 'response_time',
+                               'response_time_us', 'response_time_ms', 'elapsed_time',
+                               'duration', 'processing_time'],
+  'target_processing_time': ['target_processing_time', 'upstream_response_time', 'response_time',
+                             'response_time_us', 'response_time_ms', 'elapsed_time',
+                             'duration', 'processing_time'],
+  'response_processing_time': ['response_processing_time', 'response_time', 'response_time_us',
+                               'response_time_ms', 'elapsed_time', 'duration', 'processing_time']
+  ```
+
+#### 3. 테스트 스크립트 추가
+- **`tests/test_graph_gz.py`**: HTTPD 로그(log.gz)를 대상으로 두 가지 기능 테스트
+  - `generateSentBytesPerURI`: Sent Bytes per URI (Sum & Average) 생성
+  - `generateProcessingTimePerURI`: Processing Time per URI 생성
+- **테스트 결과**: 모두 성공 (150,004 및 164,810 트랜잭션 처리)
+
+#### 이점
+- HTTPD, ALB, Nginx 등 다양한 로그 형식의 processing time 필드를 자동으로 인식
+- 사용자가 정확한 필드명을 몰라도 일반적인 이름으로 요청 가능
+- Interactive menu와 API 모두에서 일관된 동작
+- 명확한 오류 메시지와 로깅으로 디버깅 용이
+
 ### 문서 한글화 및 구성 개선 (2025-12-04)
 
 **문서 한글화**:

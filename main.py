@@ -98,9 +98,9 @@ def _check_field_availability(field_name, available_columns):
         'received_bytes': ['received_bytes', 'bytes', 'request_size'],
         'target_ip': ['target_ip', 'backend_ip', 'upstream_addr'],
         'client_ip': ['client_ip', 'remote_addr', 'clientIp'],
-        'request_processing_time': ['request_processing_time', 'request_time'],
-        'target_processing_time': ['target_processing_time', 'upstream_response_time'],
-        'response_processing_time': ['response_processing_time'],
+        'request_processing_time': ['request_processing_time', 'request_time', 'response_time', 'response_time_us', 'response_time_ms', 'elapsed_time', 'duration', 'processing_time'],
+        'target_processing_time': ['target_processing_time', 'upstream_response_time', 'response_time', 'response_time_us', 'response_time_ms', 'elapsed_time', 'duration', 'processing_time'],
+        'response_processing_time': ['response_processing_time', 'response_time', 'response_time_us', 'response_time_ms', 'elapsed_time', 'duration', 'processing_time'],
     }
 
     # Check variants

@@ -1,0 +1,74 @@
+{
+  "patternRules": [
+    {
+      "pattern": "^/Windchill/servlet/WindchillGW/wt\\.fv\\.master\\.StandardMasterService/doDirectDownload/%7B%24CAD_NAME%7D\\?.*$",
+      "replacement": "/Windchill/servlet/WindchillGW/wt.fv.master.StandardMasterService/doDirectDownload/%7B%24CAD_NAME%7D?*"
+    },
+    {
+      "pattern": "^/Windchill/servlet/WindchillGW/wt\\.fv\\.master\\.StandardMasterService/doDirectDownload/%7B%24CAD_NAME_NO_EXT%7D\\.xpr\\?.*$",
+      "replacement": "/Windchill/servlet/WindchillGW/wt.fv.master.StandardMasterService/doDirectDownload/%7B%24CAD_NAME_NO_EXT%7D.xpr?*"
+    },
+    {
+      "pattern": "^/Windchill/servlet/WindchillAuthGW/com\\.ptc\\.windchill\\.uwgm\\.soap\\.impl\\.uwgm\\.BinaryRequestHandler/getCacheDescriptor\\?.*$",
+      "replacement": "/Windchill/servlet/WindchillAuthGW/com.ptc.windchill.uwgm.soap.impl.uwgm.BinaryRequestHandler/getCacheDescriptor?*"
+    },
+    {
+      "pattern": "^/Windchill/servlet/WindchillGW/wt\\.fv\\.master\\.StandardMasterService/doDirectDownload/.*\\.doc\\?.*$",
+      "replacement": "/Windchill/servlet/WindchillGW/wt.fv.master.StandardMasterService/doDirectDownload/*.doc?*"
+    },
+    {
+      "pattern": "^/Windchill/servlet/WindchillGW/wt\\.fv\\.master\\.StandardMasterService/doDirectDownload/.*\\.archive\\?.*$",
+      "replacement": "/Windchill/servlet/WindchillGW/wt.fv.master.StandardMasterService/doDirectDownload/*.archive?*"
+    },
+    {
+      "pattern": "^/Windchill/servlet/WindchillGW/wt\\.fv\\.master\\.StandardMasterService/doDirectDownload/RE_%20%EB%A1%9C%EB%B4%87%EC%86%94%EB%8D%94%20%EB%AA%A8%EB%8D%B8%20%EC%83%9D%EC%82%B0%20%EC%9D%BC%EC%A0%95%20%EA%B3%B5%EC%9C%A0%EC%9D%98%20%EA%B1%B4%20_%20S100%200_4%7E2_2KW%20%EC%8B%A4%EB%A6%AC%EC%BD%98%20%ED%8C%A8%EB%93%9C%20%EB%B3%80%EA%B2%BD%EC%97%90%20%EB%94%B0%EB%A5%B8%20%EC%83%9D%EC%82%B0%EA%B3%84%ED%9A%8D%20%EA%B3%B5%EC%9C%A0%20%EC%9A%94%EC%B2%AD%20%EA%B1%B4\\.msg\\?.*$",
+      "replacement": "/Windchill/servlet/WindchillGW/wt.fv.master.StandardMasterService/doDirectDownload/RE_%20%EB%A1%9C%EB%B4%87%EC%86%94%EB%8D%94%20%EB%AA%A8%EB%8D%B8%20%EC%83%9D%EC%82%B0%20%EC%9D%BC%EC%A0%95%20%EA%B3%B5%EC%9C%A0%EC%9D%98%20%EA%B1%B4%20_%20S100%200_4%7E2_2KW%20%EC%8B%A4%EB%A6%AC%EC%BD%98%20%ED%8C%A8%EB%93%9C%20%EB%B3%80%EA%B2%BD%EC%97%90%20%EB%94%B0%EB%A5%B8%20%EC%83%9D%EC%82%B0%EA%B3%84%ED%9A%8D%20%EA%B3%B5%EC%9C%A0%20%EC%9A%94%EC%B2%AD%20%EA%B1%B4.msg?*"
+    },
+    {
+      "pattern": "^/Windchill/servlet/WindchillAuthGW/wt\\.enterprise\\.URLProcessor/URLTemplateAction\\?.*$",
+      "replacement": "/Windchill/servlet/WindchillAuthGW/wt.enterprise.URLProcessor/URLTemplateAction?*"
+    },
+    {
+      "pattern": "^/Windchill/ptc1/ds\\?.*$",
+      "replacement": "/Windchill/ptc1/ds?*"
+    },
+    {
+      "pattern": "^/Windchill/servlet/WindchillGW/wt\\.fv\\.master\\.StandardMasterService/doDirectDownload/RE_%20%EC%8A%B9%EC%9D%B8%EC%9B%90%20%EA%B2%80%ED%86%A0%20%EC%9A%94%EC%B2%AD%20%EA%B1%B4_%20S100%200_4%7E2_2KW%20%EC%8B%A4%EB%A6%AC%EC%BD%98%20%ED%8C%A8%EB%93%9C%20%EB%B3%80%EA%B2%BD%EC%97%90%20%EB%94%B0%EB%A5%B8%20%EC%83%9D%EC%82%B0%EA%B3%84%ED%9A%8D%20%EA%B3%B5%EC%9C%A0%20%EC%9A%94%EC%B2%AD%20%EA%B1%B4\\.msg\\?.*$",
+      "replacement": "/Windchill/servlet/WindchillGW/wt.fv.master.StandardMasterService/doDirectDownload/RE_%20%EC%8A%B9%EC%9D%B8%EC%9B%90%20%EA%B2%80%ED%86%A0%20%EC%9A%94%EC%B2%AD%20%EA%B1%B4_%20S100%200_4%7E2_2KW%20%EC%8B%A4%EB%A6%AC%EC%BD%98%20%ED%8C%A8%EB%93%9C%20%EB%B3%80%EA%B2%BD%EC%97%90%20%EB%94%B0%EB%A5%B8%20%EC%83%9D%EC%82%B0%EA%B3%84%ED%9A%8D%20%EA%B3%B5%EC%9C%A0%20%EC%9A%94%EC%B2%AD%20%EA%B1%B4.msg?*"
+    },
+    {
+      "pattern": "^/Windchill/app/lse/edm/downloadPrimaryContentFile\\?.*$",
+      "replacement": "/Windchill/app/lse/edm/downloadPrimaryContentFile?*"
+    },
+    {
+      "pattern": "^/Windchill/servlet/WindchillGW/wt\\.fv\\.uploadtocache\\.DoUploadToCache_Server/doUploadToCache_Master\\?.*$",
+      "replacement": "/Windchill/servlet/WindchillGW/wt.fv.uploadtocache.DoUploadToCache_Server/doUploadToCache_Master?*"
+    },
+    {
+      "pattern": "^/Windchill/ECADSearchLibCmd\\.laf\\?.*$",
+      "replacement": "/Windchill/ECADSearchLibCmd.laf?*"
+    },
+    {
+      "pattern": "^/Windchill/app/lse/orderbom/createECO$",
+      "replacement": "/Windchill/app/lse/orderbom/createECO"
+    },
+    {
+      "pattern": "^/Windchill/app/lse/orderbom/getAddedItems$",
+      "replacement": "/Windchill/app/lse/orderbom/getAddedItems"
+    },
+    {
+      "pattern": "^/Windchill/app/lse/ecm/reviseAffectedActivityData$",
+      "replacement": "/Windchill/app/lse/ecm/reviseAffectedActivityData"
+    },
+    {
+      "pattern": "^/Windchill/ptc1/searchFacet$",
+      "replacement": "/Windchill/ptc1/searchFacet"
+    }
+  ],
+  "totalPatterns": 10,
+  "extractedAt": "2026-01-23T00:42:53.258328",
+  "lastUpdatedAt": "2026-01-23T00:42:53.258354",
+  "sourceFile": "tests/accesslog_example/log.gz",
+  "topN": 10,
+  "criteria": "response_time_us_sum"
+}
