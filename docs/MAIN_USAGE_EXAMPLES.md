@@ -1,8 +1,13 @@
-# main.py 사용 예제 (main.py Usage Examples)
+# CLI (main.py) 사용 예제
 
-이 문서는 새로운 처리 시간 분석 기능과 함께 대화형 CLI를 사용하는 예제를 제공합니다.
+대화형 CLI를 통한 로그 분석 예제를 제공합니다.
 
-## 기본 사용법 (Basic Usage)
+**관련 문서:**
+- [USAGE_EXAMPLES.md](./USAGE_EXAMPLES.md) - Python API 사용 예제
+- [PROCESSING_TIME_USAGE.md](./PROCESSING_TIME_USAGE.md) - 처리 시간 통계 가이드
+- [WORKFLOWS.md](./WORKFLOWS.md) - 일반적인 워크플로우
+
+## 기본 사용법
 
 ```bash
 # 대화형 메뉴 모드

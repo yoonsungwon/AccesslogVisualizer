@@ -1,6 +1,10 @@
-# Apache LogFormat Converter Guide
+# Apache LogFormat 변환 가이드
 
-자동으로 Apache LogFormat 문자열을 파싱하여 config.yaml 또는 logformat_*.json 파일을 생성하는 도구입니다.
+Apache LogFormat 문자열을 자동으로 파싱하여 config.yaml 또는 logformat_*.json 파일을 생성하는 도구입니다.
+
+**관련 문서:**
+- [CONFIGURATION.md](./CONFIGURATION.md) - 설정 가이드
+- [EXAMPLES.md](./EXAMPLES.md) - 로그 포맷별 설정 예제
 
 ## 사용법
 

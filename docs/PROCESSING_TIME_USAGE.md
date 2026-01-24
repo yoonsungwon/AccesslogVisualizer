@@ -1,8 +1,13 @@
-# 처리 시간 통계 - 사용 가이드 (Processing Time Statistics - Usage Guide)
+# 처리 시간 통계 사용 가이드
 
-이 문서는 AccessLogAnalyzer의 새로운 처리 시간 통계 기능을 사용하는 방법을 설명합니다.
+`calculateStats` 함수의 처리 시간 통계 기능을 사용하는 방법을 설명합니다.
 
-## 개요 (Overview)
+**관련 문서:**
+- [API_REFERENCE.md](./API_REFERENCE.md) - calculateStats 함수 참조
+- [MAIN_USAGE_EXAMPLES.md](./MAIN_USAGE_EXAMPLES.md) - CLI 사용 예제
+- [WORKFLOWS.md](./WORKFLOWS.md) - 일반적인 워크플로우
+
+## 개요
 
 `calculateStats` 함수는 유연한 정렬 및 Top N 필터링과 함께 다중 처리 시간 필드 분석을 지원하도록 향상되었습니다.
 

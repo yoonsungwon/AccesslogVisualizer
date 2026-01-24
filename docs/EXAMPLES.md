@@ -1,19 +1,24 @@
-# Access Log Analyzer - Usage Examples
+# 로그 포맷별 설정 예제
 
-This document provides practical examples for analyzing different log formats.
+다양한 로그 포맷을 분석하기 위한 config.yaml 설정 예제를 제공합니다.
 
-## Table of Contents
-1. [ALB Logs](#alb-logs)
-2. [Apache Access Logs](#apache-access-logs)
-3. [Nginx Access Logs](#nginx-access-logs)
-4. [JSON Logs](#json-logs)
-5. [Custom Log Formats (GROK)](#custom-log-formats-grok)
+**관련 문서:**
+- [CONFIGURATION.md](./CONFIGURATION.md) - 설정 가이드
+- [APACHE_LOGFORMAT_GUIDE.md](./APACHE_LOGFORMAT_GUIDE.md) - Apache LogFormat 변환 가이드
+- [USAGE_EXAMPLES.md](./USAGE_EXAMPLES.md) - Python API 사용 예제
+
+## 목차
+1. [ALB 로그](#alb-로그)
+2. [Apache 액세스 로그](#apache-액세스-로그)
+3. [Nginx 액세스 로그](#nginx-액세스-로그)
+4. [JSON 로그](#json-로그)
+5. [사용자 정의 로그 포맷 (GROK)](#사용자-정의-로그-포맷-grok)
 
 ---
 
-## ALB Logs
+## ALB 로그
 
-### Configuration (config.yaml)
+### 설정 (config.yaml)
 ```yaml
 log_format_type: 'ALB'
 
@@ -42,48 +47,48 @@ alb:
     # ... (remaining columns)
 ```
 
-### Usage
+### 사용법
 ```python
 from data_parser import recommendAccessLogFormat, parse_log_file_with_format
 from data_visualizer import generateXlog, generateRequestPerURI
 
-# 1. Detect format
+# 1. 포맷 감지
 result = recommendAccessLogFormat("access.log.gz")
 format_file = result['logFormatFile']
 
-# 2. Parse log file
+# 2. 로그 파일 파싱
 df = parse_log_file_with_format("access.log.gz", format_file)
-print(f"Parsed {len(df)} log entries")
+print(f"파싱된 항목: {len(df)}개")
 
-# 3. Generate visualizations
+# 3. 시각화 생성
 generateXlog("access.log.gz", format_file, 'html')
 generateRequestPerURI("access.log.gz", format_file, 'html', topN=20, interval='10s')
 ```
 
 ---
 
-## Apache Access Logs
+## Apache 액세스 로그
 
-### Sample Log Format
+### 샘플 로그 포맷
 ```
 192.168.1.100 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"
 ```
 
-### Configuration (config.yaml)
+### 설정 (config.yaml)
 ```yaml
 log_format_type: 'HTTPD'
 
 httpd:
   input_path: 'access.log'
   # Apache Combined Log Format
-  # Note: Captures full "request" field, which is split into method/url/proto during parsing
+  # 참고: 전체 "request" 필드를 캡처하며, 파싱 중 method/url/proto로 분할됩니다
   log_pattern: '([^ ]*) ([^ ]*) ([^ ]*) \[([^\]]*)] "([^"]*)" ([0-9]*) ([0-9\-]*)(?: "([^"]*)" "([^"]*)")?'
   columns:
     - "client_ip"
     - "identity"
     - "user"
     - "time"
-    - "request"      # Full request line (e.g., "GET /path HTTP/1.1")
+    - "request"      # 전체 요청 라인 (예: "GET /path HTTP/1.1")
     - "status"
     - "bytes_sent"
     - "referer"
@@ -94,15 +99,15 @@ httpd:
     bytes_sent: "int"
   field_map:
     timestamp: "time"
-    method: "request_method"      # Derived from request
-    url: "request_url"            # Derived from request
+    method: "request_method"      # request에서 파생
+    url: "request_url"            # request에서 파생
     status: "status"
     clientIp: "client_ip"
 ```
 
-**Note**: The `request` field is automatically split into `request_method`, `request_url`, and `request_proto` during parsing.
+**참고**: `request` 필드는 파싱 중 자동으로 `request_method`, `request_url`, `request_proto`로 분할됩니다.
 
-### With Response Time (Apache %D directive)
+### 응답 시간 포함 (Apache %D 지시자)
 ```yaml
 httpd_with_time:
   input_path: 'access.log'
@@ -132,54 +137,54 @@ httpd_with_time:
     responseTime: "response_time_us"
 ```
 
-### Usage
+### 사용법
 ```python
-# Same as ALB - just change config.yaml
+# ALB와 동일 - config.yaml만 변경
 from data_parser import recommendAccessLogFormat
 from data_processor import calculateStats, extractUriPatterns
 from data_visualizer import generateRequestPerURI
 
-# 1. Detect format (will use HTTPD config from config.yaml)
+# 1. 포맷 감지 (config.yaml의 HTTPD 설정 사용)
 result = recommendAccessLogFormat("access.log")
 format_file = result['logFormatFile']
 
-# 2. Extract URI patterns
+# 2. URI 패턴 추출
 extractUriPatterns("access.log", format_file, 'patterns', 'maxPatterns=20')
 
-# 3. Calculate statistics
+# 3. 통계 계산
 stats = calculateStats("access.log", format_file, 'statsType=url')
 
-# 4. Visualize
+# 4. 시각화
 generateRequestPerURI("access.log", format_file, 'html', topN=20, interval='1m')
 ```
 
 ---
 
-## Nginx Access Logs
+## Nginx 액세스 로그
 
-### Sample Log Format
+### 샘플 로그 포맷
 ```
 192.168.1.100 - - [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.1" 200 1024 "http://www.example.com/" "Mozilla/5.0" 0.123
 ```
 
-### Configuration (config.yaml)
+### 설정 (config.yaml)
 ```yaml
 log_format_type: 'NGINX'
 
 nginx:
   input_path: 'access.log'
-  # Nginx log format with request_time
+  # request_time이 포함된 Nginx 로그 포맷
   log_pattern: '([^ ]*) - ([^ ]*) \[([^\]]*)\] "([^"]*)" ([0-9]*) ([0-9\-]*) "([^"]*)" "([^"]*)" ([0-9.]+)'
   columns:
     - "client_ip"
     - "remote_user"
     - "time"
-    - "request"           # Full request line
+    - "request"           # 전체 요청 라인
     - "status"
     - "bytes_sent"
     - "referer"
     - "user_agent"
-    - "request_time"      # Response time in seconds
+    - "request_time"      # 초 단위 응답 시간
   column_types:
     time: "datetime"
     status: "int"
@@ -187,17 +192,17 @@ nginx:
     request_time: "float"
   field_map:
     timestamp: "time"
-    method: "request_method"      # Derived from request
-    url: "request_url"            # Derived from request
+    method: "request_method"      # request에서 파생
+    url: "request_url"            # request에서 파생
     status: "status"
     responseTime: "request_time"
     clientIp: "client_ip"
 ```
 
-**Note**: Like HTTPD, the `request` field is automatically split into `request_method`, `request_url`, and `request_proto`.
+**참고**: HTTPD와 마찬가지로, `request` 필드는 자동으로 `request_method`, `request_url`, `request_proto`로 분할됩니다.
 
-### Nginx Custom Log Format Configuration
-For custom Nginx log formats, define your pattern in nginx.conf:
+### Nginx 사용자 정의 로그 포맷 설정
+사용자 정의 Nginx 로그 포맷의 경우, nginx.conf에 패턴을 정의하세요:
 ```nginx
 log_format custom '$remote_addr - $remote_user [$time_local] '
                   '"$request" $status $body_bytes_sent '
@@ -205,26 +210,26 @@ log_format custom '$remote_addr - $remote_user [$time_local] '
                   '$request_time $upstream_response_time';
 ```
 
-Then update config.yaml pattern accordingly.
+그런 다음 config.yaml 패턴을 그에 맞게 업데이트하세요.
 
 ---
 
-## JSON Logs
+## JSON 로그
 
-### Sample Log Format
+### 샘플 로그 포맷
 ```json
 {"timestamp":"2024-01-15T10:30:00Z","method":"GET","url":"/api/users","status":200,"response_time":0.123,"client_ip":"192.168.1.100"}
 ```
 
-### Configuration (config.yaml)
+### 설정 (config.yaml)
 ```yaml
 log_format_type: 'JSON'
 
 json:
   input_path: 'access.log'
-  # No pattern needed for JSON - just field mapping
+  # JSON에는 패턴이 필요 없음 - 필드 매핑만 필요
   field_map:
-    timestamp: "timestamp"  # Adjust to match your JSON field names
+    timestamp: "timestamp"  # JSON 필드 이름에 맞게 조정
     method: "method"
     url: "url"
     status: "status"
@@ -232,12 +237,12 @@ json:
     clientIp: "client_ip"
 ```
 
-### Alternative JSON Field Names
-If your JSON uses different field names:
+### 대체 JSON 필드 이름
+JSON이 다른 필드 이름을 사용하는 경우:
 ```yaml
 json:
   field_map:
-    timestamp: "@timestamp"      # Elasticsearch-style
+    timestamp: "@timestamp"      # Elasticsearch 스타일
     method: "request_method"
     url: "request_uri"
     status: "status_code"
@@ -247,14 +252,14 @@ json:
 
 ---
 
-## Custom Log Formats (GROK)
+## 사용자 정의 로그 포맷 (GROK)
 
-### Example 1: Custom Application Log
+### 예제 1: 사용자 정의 애플리케이션 로그
 ```
 2024-01-15 10:30:00 [INFO] 192.168.1.100 /api/users 200 GET 0.123s
 ```
 
-#### Configuration
+#### 설정
 ```yaml
 log_format_type: 'GROK'
 
@@ -282,12 +287,12 @@ grok:
     clientIp: "client_ip"
 ```
 
-### Example 2: Load Balancer Custom Format
+### 예제 2: 로드 밸런서 사용자 정의 포맷
 ```
 [2024-01-15T10:30:00+00:00] client=192.168.1.100 method=GET path=/api/users status=200 time=123ms
 ```
 
-#### Configuration
+#### 설정
 ```yaml
 grok:
   log_pattern: '\[([^\]]+)\] client=(\S+) method=(\S+) path=(\S+) status=(\d+) time=(\d+)ms'
@@ -313,29 +318,29 @@ grok:
 
 ---
 
-## Complete Workflow Example
+## 전체 워크플로우 예제
 
-### Scenario: Analyze Apache Access Logs for Slow URLs
+### 시나리오: 느린 URL에 대한 Apache 액세스 로그 분석
 
 ```python
-# 1. Set up config.yaml
-# (Set log_format_type to 'HTTPD' with appropriate pattern and columns)
+# 1. config.yaml 설정
+# (적절한 패턴과 컬럼으로 log_format_type을 'HTTPD'로 설정)
 
-# 2. Import required modules
+# 2. 필요한 모듈 임포트
 from data_parser import recommendAccessLogFormat, parse_log_file_with_format
 from data_processor import calculateStats, filterByCondition, extractUriPatterns
 from data_visualizer import generateXlog, generateRequestPerURI, generateProcessingTimePerURI
 
-# 3. Detect and parse log format
+# 3. 로그 포맷 감지 및 파싱
 result = recommendAccessLogFormat("access.log")
 format_file = result['logFormatFile']
-print(f"Detected format: {result['patternType']}")
+print(f"감지된 포맷: {result['patternType']}")
 
-# 4. Parse the log file
+# 4. 로그 파일 파싱
 df = parse_log_file_with_format("access.log", format_file)
-print(f"Parsed {len(df)} entries")
+print(f"파싱된 항목: {len(df)}개")
 
-# 5. Extract URI patterns
+# 5. URI 패턴 추출
 patterns_result = extractUriPatterns(
     "access.log",
     format_file,
@@ -344,14 +349,14 @@ patterns_result = extractUriPatterns(
 )
 patterns_file = patterns_result['filePath']
 
-# 6. Calculate statistics
+# 6. 통계 계산
 stats_result = calculateStats(
     "access.log",
     format_file,
     params='statsType=url;sortBy=status;sortMetric=count;topN=20'
 )
 
-# 7. Filter by time range
+# 7. 시간 범위로 필터링
 filtered = filterByCondition(
     "access.log",
     format_file,
@@ -359,11 +364,11 @@ filtered = filterByCondition(
     'startTime=2024-01-15T10:00:00;endTime=2024-01-15T11:00:00'
 )
 
-# 8. Generate visualizations
-# XLog scatter plot
+# 8. 시각화 생성
+# XLog 산점도
 generateXlog(filtered['filePath'], format_file, 'html')
 
-# Request count per URI
+# URI별 요청 수
 generateRequestPerURI(
     "access.log",
     format_file,
@@ -373,71 +378,71 @@ generateRequestPerURI(
     patternsFile=patterns_file
 )
 
-print("Analysis complete! Check generated HTML files.")
+print("분석 완료! 생성된 HTML 파일을 확인하세요.")
 ```
 
 ---
 
-## Tips and Best Practices
+## 팁 및 모범 사례
 
-### 1. Testing Your Pattern
-Before processing large files, test your regex pattern on a few sample lines:
+### 1. 패턴 테스트
+대용량 파일을 처리하기 전에 몇 개의 샘플 라인으로 정규식 패턴을 테스트하세요:
 ```python
 import re
 sample = '192.168.1.100 - - [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.1" 200 1024'
 pattern = r'([^ ]*) - ([^ ]*) \[([^\]]*)\] "([^ ]*) ([^ ]*) ([^"]*)" ([0-9]*) ([0-9\-]*)'
 match = re.match(pattern, sample)
 if match:
-    print(f"Matched {len(match.groups())} groups: {match.groups()}")
+    print(f"{len(match.groups())}개 그룹 매칭됨: {match.groups()}")
 else:
-    print("Pattern did not match!")
+    print("패턴이 일치하지 않습니다!")
 ```
 
-### 2. Column Count Must Match Groups
-Ensure the number of columns in config.yaml matches the number of regex groups:
+### 2. 컬럼 수와 그룹 수 일치
+config.yaml의 컬럼 수가 정규식 그룹 수와 일치하는지 확인하세요:
 ```python
 import re
-pattern = r'...'  # Your pattern
-test_line = '...'  # Sample log line
+pattern = r'...'  # 패턴
+test_line = '...'  # 샘플 로그 라인
 groups = len(re.match(pattern, test_line).groups())
-columns = [...]   # Your columns list
-assert len(columns) == groups, f"Mismatch: {len(columns)} columns vs {groups} groups"
+columns = [...]   # 컬럼 목록
+assert len(columns) == groups, f"불일치: {len(columns)} 컬럼 vs {groups} 그룹"
 ```
 
-### 3. Response Time Units
-Different log formats use different time units:
-- **Apache %D**: Microseconds (µs)
-- **Apache %T**: Seconds
-- **Nginx $request_time**: Seconds with decimals
-- **ALB**: Seconds with decimals
+### 3. 응답 시간 단위
+로그 포맷마다 다른 시간 단위를 사용합니다:
+- **Apache %D**: 마이크로초 (µs)
+- **Apache %T**: 초
+- **Nginx $request_time**: 소수점 포함 초
+- **ALB**: 소수점 포함 초
 
-Configure `responseTimeUnit` in your format accordingly.
+포맷에 따라 `responseTimeUnit`을 적절히 설정하세요.
 
-### 4. Timezone Handling
-For Apache/Nginx logs, timestamps are in local time with timezone offset. Set `timezone: 'fromLog'` to parse from the timestamp itself.
+### 4. 타임존 처리
+Apache/Nginx 로그의 경우 타임스탬프가 타임존 오프셋과 함께 로컬 시간으로 기록됩니다. 타임스탬프 자체에서 파싱하려면 `timezone: 'fromLog'`로 설정하세요.
 
-For ALB logs, timestamps are always UTC, so set `timezone: 'UTC'`.
-
----
-
-## Troubleshooting
-
-### Issue: "Failed to parse line"
-**Solution**: Check if your regex pattern matches the log format exactly. Use online regex testers or Python's `re.match()` to debug.
-
-### Issue: "Missing required fields"
-**Solution**: Ensure `field_map` contains at least `timestamp`, `url`, and `status` mappings.
-
-### Issue: "Column count mismatch"
-**Solution**: Count regex groups `()` in your pattern and ensure columns list has the same length.
-
-### Issue: "No data after parsing"
-**Solution**: Check if `pattern_type` is correct (HTTPD vs ALB vs JSON). Verify log file encoding is UTF-8.
+ALB 로그의 경우 타임스탬프가 항상 UTC이므로 `timezone: 'UTC'`로 설정하세요.
 
 ---
 
-## Additional Resources
+## 문제 해결
 
-- [AI_GUIDE.md](./AI_GUIDE.md) - Complete technical documentation
-- [CLAUDE.md](./CLAUDE.md) - Claude Code integration guide
-- [config.yaml](./config.yaml) - Full configuration file with all format examples
+### 문제: "라인 파싱 실패"
+**해결책**: 정규식 패턴이 로그 포맷과 정확히 일치하는지 확인하세요. 온라인 정규식 테스터나 Python의 `re.match()`로 디버깅하세요.
+
+### 문제: "필수 필드 누락"
+**해결책**: `field_map`에 최소한 `timestamp`, `url`, `status` 매핑이 포함되어 있는지 확인하세요.
+
+### 문제: "컬럼 수 불일치"
+**해결책**: 패턴의 정규식 그룹 `()` 수를 세고 컬럼 목록의 길이가 같은지 확인하세요.
+
+### 문제: "파싱 후 데이터 없음"
+**해결책**: `pattern_type`이 올바른지 확인하세요 (HTTPD vs ALB vs JSON). 로그 파일 인코딩이 UTF-8인지 확인하세요.
+
+---
+
+## 추가 리소스
+
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - 아키텍처 및 설계 문서
+- [API_REFERENCE.md](./API_REFERENCE.md) - API 레퍼런스
+- [CONFIGURATION.md](./CONFIGURATION.md) - 설정 가이드

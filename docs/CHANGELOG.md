@@ -1,6 +1,10 @@
-# 변경 로그 (Changelog)
+# 변경 로그
 
-이 프로젝트의 모든 주목할 만한 변경 사항은 이 파일에 문서화됩니다.
+이 프로젝트의 주요 변경 사항을 기록합니다.
+
+**관련 문서:**
+- [DEVELOPMENT.md](./DEVELOPMENT.md) - 개발 가이드
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - 기술적 아키텍처
 
 ## 최근 변경 사항 및 개선 사항
 
