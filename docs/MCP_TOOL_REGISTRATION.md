@@ -1,6 +1,11 @@
 # MCP Tool 등록 가이드
 
-이 문서는 Access Log Analyzer의 MCP Tools를 MCP 서버에 등록하는 방법을 설명합니다.
+Access Log Analyzer의 MCP Tools를 MCP 서버에 등록하는 방법을 설명합니다.
+
+**관련 문서:**
+- [API_REFERENCE.md](./API_REFERENCE.md) - API 참조
+- [DESIGN.md](./DESIGN.md) - MCP 도구 상세 사양
+- [DEVELOPMENT.md](./DEVELOPMENT.md) - 개발 가이드
 
 ## 개요
 
@@ -414,15 +419,17 @@ Claude Desktop에서 MCP 서버를 사용하려면 설정 파일을 수정합니
     "access-log-analyzer": {
       "command": "python",
       "args": [
-        "C:/bucket/itop/TA/user.sungwon/python/alb_accesslog_analyzer/mcp_server.py"
+        "/path/to/AccesslogVisualizer/mcp_server.py"
       ],
       "env": {
-        "PYTHONPATH": "C:/bucket/itop/TA/user.sungwon/python/alb_accesslog_analyzer"
+        "PYTHONPATH": "/path/to/AccesslogVisualizer"
       }
     }
   }
 }
 ```
+
+**참고:** `/path/to/AccesslogVisualizer`를 실제 프로젝트 경로로 변경하세요.
 
 ### Python MCP 클라이언트 사용
 

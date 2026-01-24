@@ -1,4 +1,11 @@
-# 설정 가이드 (Configuration Guide)
+# 설정 가이드
+
+config.yaml 파일을 통한 로그 분석기 설정 방법을 설명합니다.
+
+**관련 문서:**
+- [EXAMPLES.md](./EXAMPLES.md) - 로그 포맷별 설정 예제
+- [APACHE_LOGFORMAT_GUIDE.md](./APACHE_LOGFORMAT_GUIDE.md) - Apache LogFormat 변환 가이드
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - 기술적 아키텍처
 
 ## config.yaml 구조
 
@@ -353,7 +360,7 @@ column_types:
 
 ### 작업 디렉토리
 
-기본 작업 디렉토리는 `/mnt/c/bucket/AccesslogAnalyzer`입니다.
+기본 작업 디렉토리는 현재 프로젝트 디렉토리입니다.
 
 ## 구성 예시 (Configuration Examples)
 

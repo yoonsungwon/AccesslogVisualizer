@@ -1,9 +1,17 @@
 # 아키텍처 문서
 
+이 문서는 Access Log Analyzer의 기술적 아키텍처를 설명합니다.
+
+**관련 문서:**
+- [DESIGN.md](./DESIGN.md) - 설계 철학 및 MCP 도구 상세 사양
+- [API_REFERENCE.md](./API_REFERENCE.md) - 함수 시그니처 및 매개변수
+- [CONFIGURATION.md](./CONFIGURATION.md) - 설정 가이드
+- [DEVELOPMENT.md](./DEVELOPMENT.md) - 개발 가이드
+
 ## 프로젝트 구조
 
 ```
-AccesslogAnalyzer/
+AccesslogVisualizer/
 ├── core/                      # 핵심 인프라
 │   ├── __init__.py
 │   ├── exceptions.py          # 커스텀 예외 클래스
@@ -17,11 +25,15 @@ AccesslogAnalyzer/
 ├── mcp_server.py            # MCP 서버
 ├── config.yaml              # 선택적 설정 파일
 └── docs/                    # 문서
-    ├── ARCHITECTURE.md      # 이 파일
+    ├── ARCHITECTURE.md      # 기술적 아키텍처 (이 파일)
+    ├── DESIGN.md            # 설계 문서 및 MCP 도구 사양
     ├── API_REFERENCE.md     # 함수 시그니처 및 파라미터
     ├── CONFIGURATION.md     # 설정 가이드
     ├── DEVELOPMENT.md       # 개발 가이드
     ├── WORKFLOWS.md         # 일반적인 워크플로우
+    ├── EXAMPLES.md          # 로그 포맷별 설정 예제
+    ├── USAGE_EXAMPLES.md    # Python API 사용 예제
+    ├── MAIN_USAGE_EXAMPLES.md # CLI (main.py) 사용 예제
     └── CHANGELOG.md         # 최근 변경사항
 ```
 

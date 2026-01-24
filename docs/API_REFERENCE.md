@@ -1,6 +1,11 @@
-# API 참조 (API Reference)
+# API 참조
 
 모든 MCP 도구 및 유틸리티 함수에 대한 전체 참조입니다.
+
+**관련 문서:**
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - 기술적 아키텍처
+- [USAGE_EXAMPLES.md](./USAGE_EXAMPLES.md) - Python API 사용 예제
+- [MCP_TOOL_REGISTRATION.md](./MCP_TOOL_REGISTRATION.md) - MCP 서버 등록 가이드
 
 ## data_parser 모듈
 
@@ -100,7 +105,7 @@ def filterByCondition(
 **매개변수:**
 - `inputFile` (str): 로그 파일 경로
 - `logFormatFile` (str): 형식 파일 경로
-- `condition` (str): 필터 유형 - `'time'`, `'status'`, `'responseTime'`, `'clientip'`, `'urls'`, `'uripattern'`
+- `condition` (str): 필터 유형 - `'time'`, `'statusCode'`, `'responseTime'`, `'client'`, `'urls'`, `'uriPatterns'`
 - `params` (str): 세미콜론으로 구분된 매개변수
 
 **조건별 매개변수:**
@@ -109,21 +114,20 @@ def filterByCondition(
 - `startTime` (str): 시작 시간 (ISO 8601 형식)
 - `endTime` (str): 종료 시간 (ISO 8601 형식)
 
-**status (상태 코드):**
-- `statusMin` (int): 최소 상태 코드
-- `statusMax` (int): 최대 상태 코드
+**statusCode (상태 코드):**
+- `statusCodes` (str): 상태 코드 그룹 (예: `'4xx,5xx'`, `'200,201'`, `'500'`)
 
 **responseTime (응답 시간):**
 - `minTime` (float): 최소 응답 시간 (초)
 - `maxTime` (float): 최대 응답 시간 (초)
 
-**clientip (클라이언트 IP):**
-- `ips` (str): 쉼표로 구분된 IP 주소 목록
+**client (클라이언트 IP):**
+- `clientIps` (str): 쉼표로 구분된 IP 주소 목록 (CIDR 표기법 지원, 예: `'192.168.1.1,10.0.0.0/8'`)
 
 **urls (URL):**
 - `urlsFile` (str): URL 목록이 있는 JSON 파일 경로
 
-**uripattern (URI 패턴):**
+**uriPatterns (URI 패턴):**
 - `patternsFile` (str): 패턴 파일 경로
 
 **반환값:**
@@ -147,8 +151,8 @@ result = filterByCondition(
 result = filterByCondition(
     "access.log.gz",
     "logformat_access.json",
-    "status",
-    "statusMin=500;statusMax=599"
+    "statusCode",
+    "statusCodes=5xx"
 )
 
 # 응답 시간으로 필터링
@@ -163,8 +167,8 @@ result = filterByCondition(
 result = filterByCondition(
     "access.log.gz",
     "logformat_access.json",
-    "clientip",
-    "ips=192.168.1.100,192.168.1.101"
+    "client",
+    "clientIps=192.168.1.100,192.168.1.101"
 )
 ```
 

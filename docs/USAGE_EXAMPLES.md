@@ -1,6 +1,11 @@
-# Access Log Analyzer - 사용 예제
+# Python API 사용 예제
 
-이 문서는 Access Log Analyzer의 Python API 사용 예제를 제공합니다. 기본 사용법은 `README.md`를 참조하세요.
+Access Log Analyzer의 Python API 사용 예제를 제공합니다.
+
+**관련 문서:**
+- [EXAMPLES.md](./EXAMPLES.md) - 로그 포맷별 설정 예제
+- [MAIN_USAGE_EXAMPLES.md](./MAIN_USAGE_EXAMPLES.md) - CLI (main.py) 사용 예제
+- [WORKFLOWS.md](./WORKFLOWS.md) - 일반적인 워크플로우
 
 ## Python API 사용 예제
 
@@ -403,6 +408,6 @@ zcat access.log.gz | head -10
 ## 추가 리소스
 
 - **기본 문서**: `README.md` - 프로젝트 개요 및 빠른 시작
-- **설계 문서**: `AccessLogAnalyzer.md` - 아키텍처 및 MCP 도구 상세 설명
-- **API 문서**: 각 Python 파일의 docstring 참조
+- **설계 문서**: [DESIGN.md](./DESIGN.md) - 아키텍처 및 MCP 도구 상세 설명
+- **API 참조**: [API_REFERENCE.md](./API_REFERENCE.md) - 함수 시그니처 및 매개변수
 

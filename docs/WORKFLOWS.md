@@ -1,6 +1,11 @@
-# 일반적인 워크플로우 (Common Workflows)
+# 일반적인 워크플로우
 
-이 문서는 액세스 로그 분석을 위한 일반적인 워크플로우와 사용 패턴을 설명합니다.
+액세스 로그 분석을 위한 일반적인 워크플로우와 사용 패턴을 설명합니다.
+
+**관련 문서:**
+- [USAGE_EXAMPLES.md](./USAGE_EXAMPLES.md) - Python API 사용 예제
+- [MAIN_USAGE_EXAMPLES.md](./MAIN_USAGE_EXAMPLES.md) - CLI (main.py) 사용 예제
+- [CONFIGURATION.md](./CONFIGURATION.md) - 설정 가이드
 
 ## 빠른 시작 (Quick Start)
 
@@ -414,16 +419,16 @@ result = generateReceivedBytesPerURI(
 filter_result = filterByCondition(
     'access.log.gz',
     'logformat_access.json',
-    'status',
-    'statusMin=400;statusMax=499'
+    'statusCode',
+    'statusCodes=4xx'
 )
 
 # 5xx 에러 필터링
 filter_result = filterByCondition(
     'access.log.gz',
     'logformat_access.json',
-    'status',
-    'statusMin=500;statusMax=599'
+    'statusCode',
+    'statusCodes=5xx'
 )
 ```
 
@@ -457,8 +462,8 @@ filter_result = filterByCondition(
 filter_result = filterByCondition(
     'access.log.gz',
     'logformat_access.json',
-    'clientip',
-    'ips=192.168.1.100,192.168.1.101,192.168.1.102'
+    'client',
+    'clientIps=192.168.1.100,192.168.1.101,192.168.1.102'
 )
 ```
 
@@ -471,7 +476,7 @@ filter_result = filterByCondition(
 filter_result = filterByCondition(
     'access.log.gz',
     'logformat_access.json',
-    'uripattern',
+    'uriPatterns',
     'patternsFile=patterns_access.json'
 )
 ```
