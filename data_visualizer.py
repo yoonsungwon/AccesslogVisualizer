@@ -915,12 +915,13 @@ def generateXlog(
     # Convert response time to milliseconds if needed
     if rt_field and rt_field in log_df.columns:
         rt_unit = format_info.get('responseTimeUnit', 'ms')
-    if rt_unit == 's':
-        log_df[rt_field] = log_df[rt_field] * 1000
-    elif rt_unit == 'us':
-        log_df[rt_field] = log_df[rt_field] / 1000
-    elif rt_unit == 'ns':
-        log_df[rt_field] = log_df[rt_field] / 1000000
+        if rt_unit == 's':
+            log_df[rt_field] = log_df[rt_field] * 1000
+        elif rt_unit == 'us':
+            log_df[rt_field] = log_df[rt_field] / 1000
+        elif rt_unit == 'ns':
+            log_df[rt_field] = log_df[rt_field] / 1000000
+        # 'ms' is the default, no conversion needed
     else:
         # If response time field is not available, create a dummy field
         print(f"  Warning: Response time field not available, using default value")
@@ -3804,13 +3805,14 @@ def generateMultiMetricDashboard(
     # Convert response time to milliseconds if needed
     if rt_field and rt_field in log_df.columns:
         rt_unit = format_info.get('responseTimeUnit', 'ms')
-    if rt_unit == 's':
-        log_df[rt_field] = log_df[rt_field] * 1000
-    elif rt_unit == 'us':
-        log_df[rt_field] = log_df[rt_field] / 1000
-    elif rt_unit == 'ns':
-        log_df[rt_field] = log_df[rt_field] / 1000000
-    
+        if rt_unit == 's':
+            log_df[rt_field] = log_df[rt_field] * 1000
+        elif rt_unit == 'us':
+            log_df[rt_field] = log_df[rt_field] / 1000
+        elif rt_unit == 'ns':
+            log_df[rt_field] = log_df[rt_field] / 1000000
+        # 'ms' is the default, no conversion needed
+
     # Group by minute
     log_df['time_bucket'] = log_df[time_field].dt.floor('1T')
     time_groups = log_df.groupby('time_bucket')

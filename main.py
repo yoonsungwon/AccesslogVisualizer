@@ -885,15 +885,66 @@ def generate_processing_time(log_file, log_format_file):
     """Generate Processing Time per URI visualization"""
     print("\n--- Generate Processing Time per URI ---")
 
-    # Get available columns
+    # Get available columns and format info
     available_columns = _get_available_columns(log_format_file)
 
-    # Check field availability
-    fields = {
-        '1': ('request_processing_time', 'Request Processing Time'),
-        '2': ('target_processing_time', 'Target Processing Time'),
-        '3': ('response_processing_time', 'Response Processing Time')
-    }
+    # Load format info to get mapped responseTime field
+    with open(log_format_file, 'r') as f:
+        format_info = json.load(f)
+
+    field_map_info = format_info.get('fieldMap', {})
+    mapped_response_time = field_map_info.get('responseTime', None)
+    pattern_type = format_info.get('patternType', 'UNKNOWN')
+
+    # Build dynamic field list based on log type
+    fields = {}
+    field_map = {}
+
+    if pattern_type == 'ALB':
+        # ALB has multiple processing time fields
+        fields = {
+            '1': ('request_processing_time', 'Request Processing Time'),
+            '2': ('target_processing_time', 'Target Processing Time'),
+            '3': ('response_processing_time', 'Response Processing Time')
+        }
+        field_map = {
+            '1': 'request_processing_time',
+            '2': 'target_processing_time',
+            '3': 'response_processing_time',
+            '': 'target_processing_time'  # default
+        }
+        default_key = '2'
+    else:
+        # For HTTPD, JSON, GROK - use mapped responseTime field or common alternatives
+        candidate_fields = []
+
+        # Add mapped field first if available
+        if mapped_response_time and mapped_response_time in available_columns:
+            candidate_fields.append((mapped_response_time, f'{mapped_response_time} (mapped)'))
+
+        # Add other common response time field names
+        common_rt_fields = ['response_time', 'response_time_us', 'response_time_ms',
+                           'duration', 'elapsed', 'request_time', 'upstream_response_time']
+        for field in common_rt_fields:
+            if field in available_columns and field != mapped_response_time:
+                candidate_fields.append((field, field))
+
+        if not candidate_fields:
+            print(f"  ✗ No processing time fields found in log format")
+            print(f"  Available columns: {', '.join(available_columns[:10])}")
+            if len(available_columns) > 10:
+                print(f"  ... and {len(available_columns) - 10} more")
+            return
+
+        # Build field options from candidates
+        for i, (field_name, display_name) in enumerate(candidate_fields, 1):
+            key = str(i)
+            fields[key] = (field_name, display_name)
+            field_map[key] = field_name
+
+        # Set default to first available field
+        default_key = '1'
+        field_map[''] = candidate_fields[0][0]
 
     field_availability = {}
     for key, (field_name, display_name) in fields.items():
@@ -903,22 +954,16 @@ def generate_processing_time(log_file, log_format_file):
     print("\nSelect processing time field:")
     for key, (field_name, display_name) in fields.items():
         status = "✓ Available" if field_availability[key] else "✗ Not available"
-        default_marker = " (default)" if key == '2' else ""
+        default_marker = " (default)" if key == default_key else ""
         print(f"  {key}. {field_name}{default_marker} - {status}")
 
-    field_choice = input("Field number (1-3, default: 2): ").strip()
+    max_choice = len(fields)
+    field_choice = input(f"Field number (1-{max_choice}, default: {default_key}): ").strip()
 
-    field_map = {
-        '1': 'request_processing_time',
-        '2': 'target_processing_time',
-        '3': 'response_processing_time',
-        '': 'target_processing_time'  # default
-    }
-
-    processing_time_field = field_map.get(field_choice, 'target_processing_time')
+    processing_time_field = field_map.get(field_choice, field_map.get(''))
 
     # Check if selected field is available
-    selected_key = field_choice if field_choice else '2'
+    selected_key = field_choice if field_choice else default_key
     if not field_availability.get(selected_key, False):
         print(f"  ✗ Field Not Found: {processing_time_field}")
         print(f"  Available columns in log format: {', '.join(available_columns[:10])}")
