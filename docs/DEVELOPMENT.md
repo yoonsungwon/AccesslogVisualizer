@@ -505,7 +505,7 @@ def test_my_new_tool_file_not_found():
 ### 6. 문서 업데이트
 
 - `docs/API_REFERENCE.md`에 함수 시그니처 추가
-- `docs/WORKFLOWS.md`에 사용 예제 추가
+- `docs/USAGE_EXAMPLES.md`에 사용 예제 추가
 - 필요한 경우 `docs/ARCHITECTURE.md` 업데이트
 
 ## 디버깅 (Debugging)
@@ -688,7 +688,7 @@ def my_function():
 - `docs/ARCHITECTURE.md` - 아키텍처 및 설계
 - `docs/API_REFERENCE.md` - 함수 시그니처 및 파라미터
 - `docs/CONFIGURATION.md` - 설정 가이드
-- `docs/WORKFLOWS.md` - 일반적인 워크플로우
+- `docs/USAGE_EXAMPLES.md` - Python API, CLI, 워크플로우 예제
 - `docs/DEVELOPMENT.md` - 이 파일
 - `docs/CHANGELOG.md` - 최근 변경 사항
 
@@ -696,7 +696,7 @@ def my_function():
 
 새로운 기능을 추가할 때:
 1. 관련 문서 파일 업데이트
-2. `WORKFLOWS.md`에 예제 추가
+2. `USAGE_EXAMPLES.md`에 예제 추가
 3. `API_REFERENCE.md`에 API 참조 추가
 4. `CHANGELOG.md`에 변경 사항 업데이트
 

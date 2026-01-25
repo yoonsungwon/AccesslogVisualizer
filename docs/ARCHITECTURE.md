@@ -28,12 +28,11 @@ AccesslogVisualizer/
     ├── ARCHITECTURE.md      # 기술적 아키텍처 (이 파일)
     ├── DESIGN.md            # 설계 문서 및 MCP 도구 사양
     ├── API_REFERENCE.md     # 함수 시그니처 및 파라미터
-    ├── CONFIGURATION.md     # 설정 가이드
+    ├── CONFIGURATION.md     # 설정 가이드 (로그 포맷별 예제 포함)
     ├── DEVELOPMENT.md       # 개발 가이드
-    ├── WORKFLOWS.md         # 일반적인 워크플로우
-    ├── EXAMPLES.md          # 로그 포맷별 설정 예제
-    ├── USAGE_EXAMPLES.md    # Python API 사용 예제
-    ├── MAIN_USAGE_EXAMPLES.md # CLI (main.py) 사용 예제
+    ├── USAGE_EXAMPLES.md    # 통합 사용 예제 (CLI + Python API + 워크플로우)
+    ├── PROCESSING_TIME_USAGE.md # 처리 시간 통계 가이드
+    ├── MCP_TOOL_REGISTRATION.md # MCP 도구 등록 가이드
     └── CHANGELOG.md         # 최근 변경사항
 ```
 

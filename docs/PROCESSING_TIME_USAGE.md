@@ -4,8 +4,7 @@
 
 **관련 문서:**
 - [API_REFERENCE.md](./API_REFERENCE.md) - calculateStats 함수 참조
-- [MAIN_USAGE_EXAMPLES.md](./MAIN_USAGE_EXAMPLES.md) - CLI 사용 예제
-- [WORKFLOWS.md](./WORKFLOWS.md) - 일반적인 워크플로우
+- [USAGE_EXAMPLES.md](./USAGE_EXAMPLES.md) - Python API, CLI, 워크플로우 예제
 
 ## 개요
 

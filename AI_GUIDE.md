@@ -17,7 +17,7 @@ The tool provides:
 📚 **Detailed Documentation:**
 - **[Architecture](docs/ARCHITECTURE.md)** - System design, modules, and patterns
 - **[Configuration](docs/CONFIGURATION.md)** - config.yaml settings and log formats
-- **[Workflows](docs/WORKFLOWS.md)** - Common usage patterns and examples
+- **[Usage Examples](docs/USAGE_EXAMPLES.md)** - Python API, CLI, and common workflows
 - **[API Reference](docs/API_REFERENCE.md)** - Function signatures and parameters
 - **[Development](docs/DEVELOPMENT.md)** - Setup, testing, and contributing
 - **[Changelog](docs/CHANGELOG.md)** - Recent changes and improvements
@@ -158,7 +158,7 @@ stats_result = calculateStats(
 )
 ```
 
-See [Workflows Guide](docs/WORKFLOWS.md) for more examples.
+See [Usage Examples](docs/USAGE_EXAMPLES.md) for more examples.
 
 ## Utility Classes
 
