@@ -16,6 +16,39 @@ config.yaml 파일은 포맷별 섹션을 통해 여러 로그 포맷 유형을 
 ```yaml
 # Global settings
 version: '1.0'
+
+# 로그 파싱 재정의 (Global Overrides)
+log_regex: ''           # 정규표현식 직접 지정 (Named Capture Groups 사용)
+apache_log_format: ''   # Apache LogFormat 문자열 직접 지정 (예: combined)
+```
+
+## 로그 파싱 재정의 (Log Parsing Overrides)
+
+`config.yaml`의 최상위 레벨에서 `log_regex` 또는 `apache_log_format`을 설정하여 기존의 자동 감지 및 개별 포맷 설정을 완전히 재정의할 수 있습니다.
+
+### 우선순위 (Precedence)
+1. **log_regex**: 가장 높은 우선순위를 가집니다.
+2. **apache_log_format**: `log_regex`가 비어있을 때 사용됩니다.
+3. **자동 감지**: 위 두 설정이 모두 비어있을 때 기존의 `log_format_type` 기반 감지 또는 자동 감지가 작동합니다.
+
+> **참고**: 재정의 옵션이 설정되면 기존에 생성된 `logformat_*.json` 파일의 재사용을 건너뛰고 항상 설정된 값을 기반으로 새로운 포맷 파일을 생성합니다.
+
+### log_regex 사용법
+정규표현식의 Named Capture Group(`(?P<name>...)`)을 사용하여 로그를 파싱합니다. 각 그룹 이름은 파싱된 데이터의 컬럼 이름이 됩니다.
+
+```yaml
+log_regex: '(?P<client_ip>\S+) \S+ \S+ \[(?P<time>[^\]]+)\] "(?P<request>[^"]*)" (?P<status>\d+) (?P<bytes_sent>\S+)'
+```
+
+### apache_log_format 사용법
+Apache의 `LogFormat` 지시어 문자열을 그대로 사용하여 파싱 패턴을 생성합니다.
+
+```yaml
+# 미리 정의된 프리셋 사용
+apache_log_format: 'combined'
+
+# 또는 커스텀 포맷 문자열 사용
+apache_log_format: '%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\" %D'
 ```
 
 ## 멀티프로세싱 구성 (Multiprocessing Configuration)

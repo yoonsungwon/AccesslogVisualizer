@@ -26,7 +26,7 @@ from core.exceptions import (
     InvalidFormatError,
     ParseError
 )
-from core.config import ConfigManager, load_config
+from core.config import ConfigManager
 from core.logging_config import get_logger
 
 # Setup logger
@@ -62,13 +62,26 @@ def recommendAccessLogFormat(inputFile: str) -> Dict[str, Any]:
     # Validate input first
     if not inputFile or not os.path.exists(inputFile):
         raise CustomFileNotFoundError(inputFile)
+
+    config, _ = _load_config_near_input(inputFile)
+    configured_log_regex = config.get('log_regex', '') if config else ''
+    if isinstance(configured_log_regex, str):
+        configured_log_regex = configured_log_regex.strip()
+    else:
+        configured_log_regex = ''
+
+    configured_apache_log_format = config.get('apache_log_format', '') if config else ''
+    if isinstance(configured_apache_log_format, str):
+        configured_apache_log_format = configured_apache_log_format.strip()
+    else:
+        configured_apache_log_format = ''
     
     input_path = Path(inputFile)
     
     # Check if log format file exists in the same directory (우선 탐색)
     # Look for existing logformat_*.json files
     log_format_files = list(input_path.parent.glob("logformat_*.json"))
-    if log_format_files:
+    if log_format_files and not configured_log_regex and not configured_apache_log_format:
         # Use the most recent log format file
         latest_format_file = max(log_format_files, key=lambda p: p.stat().st_mtime)
         logger.info(f"Found existing log format file: {latest_format_file}")
@@ -82,8 +95,6 @@ def recommendAccessLogFormat(inputFile: str) -> Dict[str, Any]:
         if all(key in existing_format for key in ['logPattern', 'patternType', 'fieldMap']):
             # Return absolute path for logFormatFile
             existing_format['logFormatFile'] = str(Path(latest_format_file).resolve())
-            existing_format['configSource'] = 'Existing Log Format File'
-            existing_format['configType'] = existing_format.get('patternType', 'Unknown')
             return existing_format
     
     # Sample lines from input file
@@ -92,75 +103,77 @@ def recommendAccessLogFormat(inputFile: str) -> Dict[str, Any]:
     if not sample_lines:
         raise ValueError(f"No valid lines found in {inputFile}")
     
-    # [NEW] Try to load format from config.yaml first (Prioritize Config)
-    try:
-        config = load_config() 
-        if config and config.get('log_format_type'):
-            logger.info(f"Using log_format_type from config: {config['log_format_type']}")
-            # Use the refactored function that handles all types from config
-            format_info = _generate_format_from_config(inputFile, config)
-            
-            # Test pattern on sample lines to ensure it works
-            success_count = 0
-            failed_sample_lines = []
-            
-            for line_num, line in enumerate(sample_lines[:50], 1):
-                if _test_pattern(line, format_info['logPattern'], format_info['patternType']):
-                    success_count += 1
-                else:
-                    if line.strip():
-                        failed_sample_lines.append((line_num, line))
-            
-            success_rate = success_count / min(50, len(sample_lines))
-            logger.info(f"Config format success rate: {success_rate}")
-            
-            # If success rate is good enough, use it
-            if success_rate > 0.5:
-                # Generate logFormatFile path
-                input_path = Path(inputFile)
-                timestamp = datetime.now().strftime('%y%m%d_%H%M%S')
-                log_format_file = input_path.parent / f"logformat_{timestamp}.json"
-                
-                result = {
-                    'logFormatFile': str(log_format_file.resolve()),
-                    'logPattern': format_info['logPattern'],
-                    'patternType': format_info['patternType'],
-                    'fieldMap': format_info['fieldMap'],
-                    'responseTimeUnit': format_info['responseTimeUnit'],
-                    'timezone': format_info['timezone'],
-                    'successRate': success_rate,
-                    'confidence': 1.0,  # High confidence since it came from config
-                    'configSource': 'Config File (config.yaml)',
-                    'configType': config['log_format_type']
-                }
-                
-                if 'columns' in format_info:
-                    result['columns'] = format_info['columns']
-                if 'columnTypes' in format_info:
-                    result['columnTypes'] = format_info['columnTypes']
-                    
-                with open(log_format_file, 'w', encoding='utf-8') as f:
-                    json.dump(result, f, indent=2, ensure_ascii=False)
-                    
-                return result
-            else:
-                logger.warning("Config format success rate too low, falling back to auto-detection")
+    if configured_log_regex:
+        try:
+            compiled_regex = re.compile(configured_log_regex)
+        except re.error as e:
+            raise InvalidFormatError(f"Invalid log_regex in config.yaml: {e}", format_type='GROK')
 
-    except Exception as e:
-        logger.warning(f"Failed to load format from config: {e}")
+        columns = [
+            group_name for group_name, _ in sorted(compiled_regex.groupindex.items(), key=lambda item: item[1])
+        ]
+        format_info = {
+            'logPattern': configured_log_regex,
+            'patternType': 'GROK',
+            'fieldMap': _build_field_map_from_columns(columns, {}),
+            'columns': columns,
+            'responseTimeUnit': 'ms',
+            'timezone': 'fromLog'
+        }
+        confidence = 1.0
+    elif configured_apache_log_format:
+        try:
+            from apache_logformat_converter import parse_apache_logformat
+            regex_pattern, columns, column_types = parse_apache_logformat(configured_apache_log_format)
+        except Exception as e:
+            raise InvalidFormatError(f"Invalid apache_log_format in config.yaml: {e}", format_type='HTTPD')
 
-    # Detect log type
-    log_type, confidence = _detect_log_type(sample_lines)
-    
-    # Generate format candidates based on type
-    if log_type == 'ALB':
-        format_info = _generate_format_from_config(inputFile) # Use new name
-    elif log_type == 'JSON':
-        format_info = _generate_json_format(sample_lines)
-    elif log_type == 'APACHE':
-        format_info = _generate_apache_format(sample_lines)
+        if (
+            not isinstance(regex_pattern, str) or
+            not regex_pattern.strip() or
+            not isinstance(columns, list) or
+            not all(isinstance(col, str) and col for col in columns) or
+            not isinstance(column_types, dict)
+        ):
+            raise InvalidFormatError(
+                "Invalid apache_log_format in config.yaml: converter returned invalid output",
+                format_type='HTTPD'
+            )
+
+        try:
+            re.compile(regex_pattern)
+        except re.error as e:
+            raise InvalidFormatError(f"Invalid apache_log_format in config.yaml: {e}", format_type='HTTPD')
+
+        response_time_unit = 'ms'
+        if 'response_time_us' in columns:
+            response_time_unit = 'us'
+        elif 'response_time_s' in columns:
+            response_time_unit = 's'
+
+        format_info = {
+            'logPattern': regex_pattern,
+            'patternType': 'HTTPD',
+            'fieldMap': _build_field_map_from_columns(columns, {}),
+            'columns': columns,
+            'columnTypes': column_types,
+            'responseTimeUnit': response_time_unit,
+            'timezone': 'fromLog'
+        }
+        confidence = 1.0
     else:
-        format_info = _generate_grok_format(sample_lines)
+        # Detect log type
+        log_type, confidence = _detect_log_type(sample_lines)
+
+        # Generate format candidates based on type
+        if log_type == 'ALB':
+            format_info = _generate_alb_format(inputFile)
+        elif log_type == 'JSON':
+            format_info = _generate_json_format(sample_lines)
+        elif log_type == 'APACHE':
+            format_info = _generate_apache_format(sample_lines)
+        else:
+            format_info = _generate_grok_format(sample_lines)
     
     # Test pattern on sample lines
     success_count = 0
@@ -198,9 +211,7 @@ def recommendAccessLogFormat(inputFile: str) -> Dict[str, Any]:
         'responseTimeUnit': format_info['responseTimeUnit'],
         'timezone': format_info['timezone'],
         'successRate': success_rate,
-        'confidence': confidence * success_rate,
-        'configSource': 'Auto-detection',
-        'configType': format_info['patternType']
+        'confidence': confidence * success_rate
     }
     
     # Include columns if available (for ALB parsing with config.yaml)
@@ -246,6 +257,34 @@ def _sample_log_lines(file_path: str, n: int = 100) -> List[str]:
     return lines
 
 
+def _load_config_near_input(input_file: Optional[str] = None) -> Tuple[Dict[str, Any], Optional[Path]]:
+    """Load config.yaml near the input file using legacy search order."""
+    config_paths: List[Path] = []
+
+    if input_file:
+        input_path = Path(input_file)
+        # 1. Same directory as input file
+        config_paths.append(input_path.parent / 'config.yaml')
+        # 2. Parent directory
+        config_paths.append(input_path.parent.parent / 'config.yaml')
+
+    # 3. Current working directory
+    config_paths.append(Path.cwd() / 'config.yaml')
+    # 4. Script directory (where data_parser.py is located)
+    script_dir = Path(__file__).parent
+    config_paths.append(script_dir / 'config.yaml')
+
+    for config_path in config_paths:
+        if config_path.exists():
+            try:
+                return load_config_legacy(str(config_path)) or {}, config_path
+            except Exception as e:
+                logger.warning(f"Failed to load config from {config_path}: {e}")
+                continue
+
+    return {}, None
+
+
 def _detect_log_type(sample_lines: List[str]) -> Tuple[str, float]:
     """Detect log type from sample lines"""
     scores = {'ALB': 0, 'JSON': 0, 'APACHE': 0, 'GROK': 0}
@@ -277,92 +316,52 @@ def _detect_log_type(sample_lines: List[str]) -> Tuple[str, float]:
     if max_score == 0:
         return 'GROK', 0.1
     
-    detected_type = max(scores, key=scores.get)
+    detected_type = max(scores.items(), key=lambda item: item[1])[0]
     confidence = max_score / len(sample_lines[:20])
     
     return detected_type, confidence
 
 
-def _generate_format_from_config(input_file=None, config=None):
+def _generate_alb_format(input_file=None):
     """Generate log format specification using config.yaml if available
-    
-    Supports multiple log format types: ALB, HTTPD, JSON, GROK, Nginx, and Custom
-    """
-    # Try to load config.yaml if not provided
-    if config is None:
-        config_paths = []
-        if input_file:
-            input_path = Path(input_file)
-            config_paths.append(input_path.parent / 'config.yaml')
-            config_paths.append(input_path.parent.parent / 'config.yaml')
-        config_paths.append(Path.cwd() / 'config.yaml')
-        script_dir = Path(__file__).parent
-        config_paths.append(script_dir / 'config.yaml')
 
-        for config_path in config_paths:
-            if config_path.exists():
-                try:
-                    config = load_config(config_path)
-                    logger.info(f"Loaded config from: {config_path}")
-                    break
-                except Exception as e:
-                    logger.warning(f"Failed to load config from {config_path}: {e}")
-                    continue
+    Supports multiple log format types: ALB, HTTPD, JSON, GROK, Nginx
+
+    Args:
+        input_file (str, optional): Input log file path to find config.yaml in same directory
+
+    Returns:
+        dict: Format specification with pattern, columns, field_map, etc.
+    """
+    # Try to load config.yaml
+    config, config_path = _load_config_near_input(input_file)
+    if config_path:
+        logger.info(f"Loaded config from: {config_path}")
 
     if not config:
+        # No config found - return default ALB format
         logger.info("No config.yaml found, using default ALB format")
         return _get_default_alb_format()
 
     # Determine log format type
-    log_format_type = config.get('log_format_type', 'ALB')
+    log_format_type = config.get('log_format_type', 'ALB').upper()
     logger.info(f"Log format type from config: {log_format_type}")
-    
-    # Normalize type for standard checks
-    log_format_type_upper = log_format_type.upper()
 
     # Handle different log format types
-    if log_format_type_upper == 'HTTPD' or log_format_type_upper == 'APACHE':
+    if log_format_type == 'HTTPD' or log_format_type == 'APACHE':
         return _load_httpd_format_from_config(config)
-    elif log_format_type_upper == 'NGINX':
+    elif log_format_type == 'NGINX':
         return _load_nginx_format_from_config(config)
-    elif log_format_type_upper == 'JSON':
+    elif log_format_type == 'JSON':
         return _load_json_format_from_config(config)
-    elif log_format_type_upper == 'GROK':
+    elif log_format_type == 'GROK':
         return _load_grok_format_from_config(config)
-    elif log_format_type_upper == 'ALB':
+    elif log_format_type == 'ALB':
         return _load_alb_format_from_config(config)
     else:
-        # Check for custom section with exact name
-        if log_format_type in config:
-            logger.info(f"Loading custom format section: {log_format_type}")
-            return _load_generic_format_from_config(config, log_format_type)
-            
         # Unknown type - return default ALB
         logger.warning(f"Unknown log_format_type: {log_format_type}, using default ALB format")
         return _get_default_alb_format()
-
-
-def _load_generic_format_from_config(config, section_name):
-    """Load generic/custom format from config section"""
-    section = config.get(section_name, {})
-    
-    pattern = section.get('log_pattern', r'.*')
-    columns = section.get('columns', [])
-    field_map = section.get('field_map', {})
-    column_types = section.get('column_types', {})
-    
-    if not field_map:
-        field_map = _build_field_map_from_columns(columns, {})
-        
-    return {
-        'logPattern': pattern,
-        'patternType': 'HTTPD', # Assume HTTPD-like regex for custom formats
-        'fieldMap': field_map,
-        'columns': columns,
-        'columnTypes': column_types,
-        'responseTimeUnit': 'ms', # Default to ms
-        'timezone': 'fromLog'
-    }
 
 
 def _get_default_alb_format():
@@ -1093,7 +1092,11 @@ def parse_log_file_with_format(input_file, log_format_file, use_multiprocessing=
                             df[col] = pd.to_datetime(df[col], errors='coerce')
                         logger.debug(f"Converted '{col}' to datetime")
                     elif dtype in ('int', 'integer', 'int64'):
-                        df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+                        numeric_series = pd.to_numeric(df[col], errors='coerce')
+                        if isinstance(numeric_series, pd.Series):
+                            df[col] = numeric_series.astype('Int64')
+                        else:
+                            df[col] = numeric_series
                         logger.debug(f"Converted '{col}' to int")
                     elif dtype in ('float', 'float64', 'double'):
                         df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -1140,6 +1143,13 @@ def _parse_line(line, pattern, pattern_type, format_info=None):
         try:
             match = re.match(pattern, line)
             if match:
+                named_groups = match.groupdict()
+                if named_groups:
+                    return {
+                        key: (None if value in ('', '-', ' ', None) else value)
+                        for key, value in named_groups.items()
+                    }
+
                 groups = match.groups()
 
                 # Use columns from format_info if available (works for ALB, HTTPD, GROK, Nginx)
@@ -1303,7 +1313,11 @@ def apply_column_types(log_df, column_types):
             if dtype == 'datetime':
                 log_df[col] = pd.to_datetime(log_df[col], errors='coerce')
             elif dtype == 'int':
-                log_df[col] = pd.to_numeric(log_df[col], errors='coerce').astype('Int64')
+                numeric_series = pd.to_numeric(log_df[col], errors='coerce')
+                if isinstance(numeric_series, pd.Series):
+                    log_df[col] = numeric_series.astype('Int64')
+                else:
+                    log_df[col] = numeric_series
             elif dtype == 'float':
                 log_df[col] = pd.to_numeric(log_df[col], errors='coerce')
             elif dtype == 'str':

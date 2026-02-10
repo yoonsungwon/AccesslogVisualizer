@@ -59,7 +59,7 @@ python apache_logformat_converter.py --preset combined --output config
 - **`generateProcessingTimePerURI`**: URI별 처리 시간 (avg/sum/median/p95/p99/max) (ALB 전용)
 - **`generateMultiMetricDashboard`**: 종합 대시보드
 
-자세한 사용 예제는 [USAGE_EXAMPLES.md](docs/USAGE_EXAMPLES.md)를 참조하세요.
+자세한 사용 예제는 `EXAMPLES.md`를 참조하세요.
 
 ## 지원 로그 포맷
 
@@ -77,8 +77,6 @@ config.yaml에서 다음 로그 포맷을 설정할 수 있습니다:
   - 필드 이름 매핑 지원
 - **GROK**: Custom patterns
   - 정규표현식 기반 커스텀 패턴
-- **Custom**: 사용자 정의 포맷
-  - `config.yaml`에 임의의 섹션 이름(예: `httpd_custom`)으로 정의하여 사용 가능
 
 ### 로그 포맷별 필드 가용성
 
@@ -114,17 +112,15 @@ config.yaml에서 다음 로그 포맷을 설정할 수 있습니다:
 
 ## 설정 파일 (config.yaml)
 
-`config.yaml` 파일을 사용하여 로그 포맷을 설정할 수 있습니다:
+`config.yaml` 파일을 사용하여 로그 포맷을 설정할 수 있습니다. 최상위 레벨의 `log_regex` 또는 `apache_log_format`을 통해 글로벌 재정의가 가능합니다.
 
 ```yaml
-# 사용할 로그 포맷 타입 지정
-log_format_type: 'HTTPD'  # ALB, HTTPD, HTTPD_WITH_TIME, NGINX, JSON, GROK, 또는 사용자 정의 섹션 이름
+# 글로벌 재정의 (옵션)
+log_regex: ''           # 정규표현식(Named Group) 직접 지정 시 사용
+apache_log_format: ''   # Apache LogFormat 문자열 직접 지정 시 사용 (예: combined)
 
-# 사용자 정의 포맷 예시 (httpd_custom)
-httpd_custom:
-  log_pattern: '([^ ]*) ([^ ]*) ...'
-  columns: ['client_ip', 'time', ...]
-  field_map: {timestamp: 'time', ...}
+# 사용할 로그 포맷 타입 지정 (재정의가 없을 때 사용)
+log_format_type: 'HTTPD'  # ALB, HTTPD, HTTPD_WITH_TIME, NGINX, JSON, GROK
 
 # HTTPD (Apache Combined Log Format)
 httpd:
@@ -166,7 +162,7 @@ multiprocessing:
   min_lines_for_parallel: 10000
 ```
 
-상세한 설정 예제는 [CONFIGURATION.md](docs/CONFIGURATION.md)를 참조하세요.
+상세한 설정 예제는 `EXAMPLES.md`를 참조하세요.
 
 ## 개발자 가이드
 
@@ -204,7 +200,7 @@ MIT License
 ## 참고 문서
 
 - **AI 가이드**: `AI_GUIDE.md` - AI 어시스턴트용 상세 기술 문서
-- **사용 예제**: `docs/USAGE_EXAMPLES.md` - Python API, CLI, 워크플로우 예제
+- **사용 예제**: `EXAMPLES.md` - 로그 포맷별 설정 및 사용 예제
 - **Apache LogFormat 컨버터**: `APACHE_LOGFORMAT_GUIDE.md` - Apache LogFormat 문자열로부터 설정 파일 자동 생성
 - **Claude 가이드**: `CLAUDE.md` - Claude Code 통합 가이드
 - **Gemini 가이드**: `GEMINI.md` - Gemini CLI 통합 가이드

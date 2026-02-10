@@ -1,3 +1,9 @@
+# Global log parsing overrides (Optional)
+# If log_regex is provided, it will be used for parsing.
+# Precedence: log_regex > apache_log_format
+log_regex: ''
+apache_log_format: ''
+
 alb:
   column_types:
     actions_executed: str
@@ -70,11 +76,7 @@ alb:
   - classification_reason
   - conn_trace_id
   input_path: '*.gz'
-  log_pattern: ([^ ]*) ([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:-]([0-9]*) ([-.0-9]*)
-    ([-.0-9]*) ([-.0-9]*) (|[-0-9]*) (-|[-0-9]*) ([-0-9]*) ([-0-9]*) "([^ ]*) (.*)
-    (- |[^ ]*)" "([^"]*)" ([A-Z0-9-_]+) ([A-Za-z0-9.-]*) ([^ ]*) "([^"]*)" "([^"]*)"
-    "([^"]*)" ([-.0-9]*) ([^ ]*) "([^"]*)" "([^"]*)" "([^ ]*)" "([^\s]+?)" "([^\s]+)"
-    "([^ ]*)" "([^ ]*)" ?([^ ]*)?
+  log_pattern: '([^ ]*) ([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:-]([0-9]*) ([-.0-9]*) ([-.0-9]*) ([-.0-9]*) (|[-0-9]*) (-|[-0-9]*) ([-0-9]*) ([-0-9]*) "([^ ]*) (.*) (- |[^ ]*)" "([^"]*)" ([A-Z0-9-_]+) ([A-Za-z0-9.-]*)(?: ([^ ]*) "([^"]*)" "([^"]*)" "([^"]*)" ([-.0-9]*) ([^ ]*) "([^"]*)" "([^"]*)" "([^"]*)" "([^\s]+?)" "([^\s]+)" "([^ ]*)" "([^ ]*)" ?([^ ]*)?)?'
 grok:
   column_types:
     level: str
@@ -87,33 +89,7 @@ grok:
   field_map:
     timestamp: timestamp
   input_path: custom.log
-  log_pattern: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[([^\]]+)\] (.*)
-httpd_custom:
-  column_types:
-    client_ip: str
-    identity: str
-    user: str
-    time: datetime
-    request: str
-    status: int
-    bytes_sent: int
-    response_time_us: int
-  columns:
-  - client_ip
-  - identity
-  - user
-  - time
-  - request
-  - status
-  - bytes_sent
-  - response_time_us
-  field_map:
-    timestamp: time
-    status: status
-    clientIp: client_ip
-    responseTime: response_time_us
-  input_path: access.log
-  log_pattern: '([^ ]*) ([^ ]*) ([^ ]*) \[([^\]]*)\] "([^"]*)" ([0-9]*) ([0-9\-]*) ([0-9]+)'
+  log_pattern: '(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[([^\]]+)\] (.*)'
 httpd:
   column_types:
     client_ip: str
@@ -142,8 +118,33 @@ httpd:
     status: status
     clientIp: client_ip
   input_path: access.log
-  log_pattern: '([^ ]*) ([^ ]*) ([^ ]*) \[([^\]]*)] "([^"]*)" ([0-9]*) ([0-9\-]*)(?:
-    "([^"]*)" "([^"]*)")?'
+  log_pattern: '([^ ]*) ([^ ]*) ([^ ]*) \[([^\]]*)] "([^"]*)" ([0-9]*) ([0-9\-]*)(?: "([^"]*)" "([^"]*)")?'
+httpd_custom:
+  column_types:
+    client_ip: str
+    identity: str
+    user: str
+    time: datetime
+    request: str
+    status: int
+    bytes_sent: int
+    response_time_us: int
+  columns:
+  - client_ip
+  - identity
+  - user
+  - time
+  - request
+  - status
+  - bytes_sent
+  - response_time_us
+  field_map:
+    timestamp: time
+    status: status
+    clientIp: client_ip
+    responseTime: response_time_us
+  input_path: access.log
+  log_pattern: '([^ ]*) ([^ ]*) ([^ ]*) \[([^\]]*)\] "([^"]*)" ([0-9]*) ([0-9\-]*) ([0-9]+)'
 httpd_with_time:
   column_types:
     bytes_sent: int
@@ -179,8 +180,7 @@ httpd_with_time:
     timestamp: time
     url: request_url
   input_path: access.log
-  log_pattern: ([^ ]*) [^ ]* ([^ ]*) \[([^\]]*)\] "([^ ]*) ([^ ]*) ([^"]*)" ([0-9]*)
-    ([0-9\-]*) "([^"]*)" "([^"]*)" ([0-9]+)
+  log_pattern: '([^ ]*) [^ ]* ([^ ]*) \[([^\]]*)\] "([^ ]*) ([^ ]*) ([^"]*)" ([0-9]*) ([0-9\-]*) "([^"]*)" "([^"]*)" ([0-9]+)'
 json:
   field_map:
     clientIp: client_ip
@@ -190,7 +190,7 @@ json:
     timestamp: timestamp
     url: url
   input_path: access.log
-log_format_type: httpd_custom
+log_format_type: ALB
 multiprocessing:
   chunk_size: 10000
   enabled: true
@@ -229,6 +229,5 @@ nginx:
     timestamp: time
     url: request_url
   input_path: access.log
-  log_pattern: ([^ ]*) - ([^ ]*) \[([^\]]*)\] "([^ ]*) ([^ ]*) ([^"]*)" ([0-9]*) ([0-9\-]*)
-    "([^"]*)" "([^"]*)" ([0-9.]+)
+  log_pattern: '([^ ]*) - ([^ ]*) \[([^\]]*)\] "([^ ]*) ([^ ]*) ([^"]*)" ([0-9]*) ([0-9\-]*) "([^"]*)" "([^"]*)" ([0-9.]+)'
 version: '1.0'
